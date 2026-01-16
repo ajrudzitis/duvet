@@ -2,12 +2,12 @@
 
 ## Phase 1: Core Infrastructure
 
-- [ ] 1. Create merge module structure
-  - [ ] 1.1 Create `duvet/src/merge.rs` with `Merge` command structure and `exec()` method
-  - [ ] 1.2 Create `duvet/src/merge/mod.rs` with module organization
-  - [ ] 1.3 Add `Merge` variant to `Arguments` enum in `duvet/src/lib.rs`
-  - [ ] 1.4 Wire up merge command execution in `Arguments::exec()`
-  - [ ] 1.5 Add basic CLI test to verify command is recognized
+- [x] 1. Create merge module structure
+  - [x] 1.1 Create `duvet/src/merge.rs` with `Merge` command structure and `exec()` method
+  - [x] 1.2 Create `duvet/src/merge/mod.rs` with module organization
+  - [x] 1.3 Add `Merge` variant to `Arguments` enum in `duvet/src/lib.rs`
+  - [x] 1.4 Wire up merge command execution in `Arguments::exec()`
+  - [x] 1.5 Add basic CLI test to verify command is recognized
 
 - [ ] 2. Implement JSON schema deserialization
   - [ ] 2.1 Create `duvet/src/merge/schema.rs`
