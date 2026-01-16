@@ -1,6 +1,10 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Merge subcommand for combining multiple JSON reports.
+
+pub mod schema;
+
 use crate::Result;
 use clap::Parser;
 use duvet_core::path::Path;

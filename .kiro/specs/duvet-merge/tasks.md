@@ -9,15 +9,15 @@
   - [x] 1.4 Wire up merge command execution in `Arguments::exec()`
   - [x] 1.5 Add basic CLI test to verify command is recognized
 
-- [ ] 2. Implement JSON schema deserialization
-  - [ ] 2.1 Create `duvet/src/merge/schema.rs`
-  - [ ] 2.2 Implement `JsonReport` structure with serde derives
-  - [ ] 2.3 Implement `JsonSpecification` structure
-  - [ ] 2.4 Implement `JsonSection` structure
-  - [ ] 2.5 Implement `JsonAnnotation` structure
-  - [ ] 2.6 Implement `JsonStatus` structure
-  - [ ] 2.7 Implement `JsonRefStatus` structure
-  - [ ] 2.8 Add unit tests for deserialization using sample JSON from integration tests
+- [x] 2. Implement JSON schema deserialization
+  - [x] 2.1 Create `duvet/src/merge/schema.rs`
+  - [x] 2.2 Implement `JsonReport` structure with serde derives
+  - [x] 2.3 Implement `JsonSpecification` structure
+  - [x] 2.4 Implement `JsonSection` structure
+  - [x] 2.5 Implement `JsonAnnotation` structure
+  - [x] 2.6 Implement `JsonStatus` structure
+  - [x] 2.7 Implement `JsonRefStatus` structure
+  - [x] 2.8 Add unit tests for deserialization using sample JSON from integration tests
 
 - [ ] 3. Implement file loading and validation
   - [ ] 3.1 Implement async file reading for input JSON files using `tokio::fs`
