@@ -96,11 +96,11 @@
 
 ## Phase 5: JSON Output Generation
 
-- [ ] 13. Implement merged JSON structure
-  - [ ] 13.1 Create `MergedReport` structure for serialization
-  - [ ] 13.2 Implement conversion from merge logic to `MergedReport`
-  - [ ] 13.3 Add serde serialization derives
-  - [ ] 13.4 Add unit tests for structure creation
+- [x] 13. Implement merged JSON structure
+  - [x] 13.1 Create `MergedReport` structure for serialization
+  - [x] 13.2 Implement conversion from merge logic to `MergedReport`
+  - [x] 13.3 Add serde serialization derives
+  - [x] 13.4 Add unit tests for structure creation
 
 - [ ] 14. Implement JSON output
   - [ ] 14.1 Implement JSON serialization of merged report

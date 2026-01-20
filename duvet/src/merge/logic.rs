@@ -555,6 +555,35 @@ pub fn validate_refs_arrays(reports: &[JsonReport]) -> Result<(), String> {
     Ok(())
 }
 
+/// Build a merged report from the merge results.
+///
+/// This function combines all the merge results into a single `MergedReport`
+/// structure that can be serialized to JSON.
+///
+/// # Arguments
+/// * `reports` - The original input reports (for extracting refs and links)
+/// * `assignment` - The ID assignment with merged annotations
+/// * `remapped_statuses` - The final statuses with remapped IDs
+/// * `merged_specs` - The merged specifications
+///
+/// # Returns
+/// A `MergedReport` ready for serialization
+pub fn build_merged_report(
+    reports: &[JsonReport],
+    assignment: &IdAssignment,
+    remapped_statuses: HashMap<String, super::schema::JsonStatus>,
+    merged_specs: HashMap<String, JsonSpecification>,
+) -> super::schema::MergedReport {
+    super::schema::MergedReport {
+        blob_link: resolve_blob_links(reports),
+        issue_link: resolve_issue_links(reports),
+        specifications: merged_specs,
+        annotations: assignment.merged_annotations.clone(),
+        statuses: remapped_statuses,
+        refs: extract_refs_array(reports),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3490,4 +3519,481 @@ mod tests {
         // Should report the first mismatch (index 0)
         assert!(err.contains("index 0"), "Error should mention the first mismatch index: {}", err);
     }
+
+    // Tests for build_merged_report
+
+    #[test]
+    fn test_build_merged_report_basic() {
+        // Test basic merged report creation with simple inputs
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        let mut specs = HashMap::new();
+        specs.insert(
+            "spec1".to_string(),
+            crate::merge::schema::JsonSpecification {
+                title: Some("Test Spec".to_string()),
+                format: "markdown".to_string(),
+                requirements: vec![0, 1],
+                sections: vec![],
+            },
+        );
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
+        statuses.insert("1".to_string(), create_test_status(Some(2), None, None, None, None));
+        
+        let report = JsonReport {
+            blob_link: Some("https://github.com/example/repo".to_string()),
+            issue_link: Some("https://github.com/example/repo/issues".to_string()),
+            specifications: specs.clone(),
+            annotations: vec![anno1.clone(), anno2.clone()],
+            statuses: statuses.clone(),
+            refs: vec![crate::merge::schema::JsonRefStatus::default()],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        
+        let merged = super::build_merged_report(
+            &[report],
+            &assignment,
+            statuses,
+            specs.clone(),
+        );
+        
+        // Verify structure
+        assert_eq!(merged.blob_link, Some("https://github.com/example/repo".to_string()));
+        assert_eq!(merged.issue_link, Some("https://github.com/example/repo/issues".to_string()));
+        assert_eq!(merged.specifications.len(), 1);
+        assert_eq!(merged.annotations.len(), 2);
+        assert_eq!(merged.statuses.len(), 2);
+        assert_eq!(merged.refs.len(), 1);
+    }
+
+    #[test]
+    fn test_build_merged_report_with_conflicting_links() {
+        // Test that conflicting links are omitted
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let report1 = JsonReport {
+            blob_link: Some("https://github.com/repo1".to_string()),
+            issue_link: Some("https://github.com/repo1/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: Some("https://github.com/repo2".to_string()),
+            issue_link: Some("https://github.com/repo2/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        
+        let merged = super::build_merged_report(
+            &[report1, report2],
+            &assignment,
+            HashMap::new(),
+            HashMap::new(),
+        );
+        
+        // Conflicting links should be omitted
+        assert_eq!(merged.blob_link, None);
+        assert_eq!(merged.issue_link, None);
+    }
+
+    #[test]
+    fn test_build_merged_report_with_consistent_links() {
+        // Test that consistent links are preserved
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let report1 = JsonReport {
+            blob_link: Some("https://github.com/repo".to_string()),
+            issue_link: Some("https://github.com/repo/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: Some("https://github.com/repo".to_string()),
+            issue_link: Some("https://github.com/repo/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        
+        let merged = super::build_merged_report(
+            &[report1, report2],
+            &assignment,
+            HashMap::new(),
+            HashMap::new(),
+        );
+        
+        // Consistent links should be preserved
+        assert_eq!(merged.blob_link, Some("https://github.com/repo".to_string()));
+        assert_eq!(merged.issue_link, Some("https://github.com/repo/issues".to_string()));
+    }
+
+    #[test]
+    fn test_build_merged_report_preserves_annotations_order() {
+        // Test that annotations are in the order from assignment (sorted by key)
+        let anno_z = create_test_annotation("src/z.rs", "spec1", Some("s1"), Some(10));
+        let anno_a = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(20));
+        let anno_m = create_test_annotation("src/m.rs", "spec1", Some("s1"), Some(30));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno_z, anno_a, anno_m],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        
+        let merged = super::build_merged_report(
+            &[report],
+            &assignment,
+            HashMap::new(),
+            HashMap::new(),
+        );
+        
+        // Annotations should be in sorted order
+        assert_eq!(merged.annotations.len(), 3);
+        assert_eq!(merged.annotations[0].source, "src/a.rs");
+        assert_eq!(merged.annotations[1].source, "src/m.rs");
+        assert_eq!(merged.annotations[2].source, "src/z.rs");
+    }
+
+    #[test]
+    fn test_build_merged_report_serialization() {
+        // Test that the merged report can be serialized to JSON
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let mut specs = HashMap::new();
+        specs.insert(
+            "spec1".to_string(),
+            crate::merge::schema::JsonSpecification {
+                title: Some("Test".to_string()),
+                format: "markdown".to_string(),
+                requirements: vec![0],
+                sections: vec![],
+            },
+        );
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
+        
+        let report = JsonReport {
+            blob_link: Some("https://github.com/example/repo".to_string()),
+            issue_link: None,
+            specifications: specs.clone(),
+            annotations: vec![anno],
+            statuses: statuses.clone(),
+            refs: vec![crate::merge::schema::JsonRefStatus::default()],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        
+        let merged = super::build_merged_report(
+            &[report],
+            &assignment,
+            statuses,
+            specs,
+        );
+        
+        // Should be able to serialize to JSON
+        let json_result = serde_json::to_string(&merged);
+        assert!(json_result.is_ok(), "Failed to serialize merged report: {:?}", json_result.err());
+        
+        let json = json_result.unwrap();
+        assert!(json.contains("blob_link"));
+        assert!(json.contains("specifications"));
+        assert!(json.contains("annotations"));
+        assert!(json.contains("statuses"));
+        assert!(json.contains("refs"));
+    }
+
+    #[test]
+    fn test_build_merged_report_empty_inputs() {
+        // Test building a merged report with no annotations
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        
+        let merged = super::build_merged_report(
+            &[report],
+            &assignment,
+            HashMap::new(),
+            HashMap::new(),
+        );
+        
+        // Should create valid empty report
+        assert_eq!(merged.annotations.len(), 0);
+        assert_eq!(merged.statuses.len(), 0);
+        assert_eq!(merged.specifications.len(), 0);
+        assert_eq!(merged.refs.len(), 0);
+    }
+
+    #[test]
+    fn test_build_merged_report_multiple_specs() {
+        // Test that multiple specifications are preserved
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec2", Some("s1"), Some(20));
+        
+        let mut specs = HashMap::new();
+        specs.insert(
+            "spec1".to_string(),
+            crate::merge::schema::JsonSpecification {
+                title: Some("Spec 1".to_string()),
+                format: "markdown".to_string(),
+                requirements: vec![0],
+                sections: vec![],
+            },
+        );
+        specs.insert(
+            "spec2".to_string(),
+            crate::merge::schema::JsonSpecification {
+                title: Some("Spec 2".to_string()),
+                format: "ietf".to_string(),
+                requirements: vec![1],
+                sections: vec![],
+            },
+        );
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs.clone(),
+            annotations: vec![anno1, anno2],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        
+        let merged = super::build_merged_report(
+            &[report],
+            &assignment,
+            HashMap::new(),
+            specs.clone(),
+        );
+        
+        // Both specifications should be present
+        assert_eq!(merged.specifications.len(), 2);
+        assert!(merged.specifications.contains_key("spec1"));
+        assert!(merged.specifications.contains_key("spec2"));
+        assert_eq!(merged.specifications.get("spec1").unwrap().title, Some("Spec 1".to_string()));
+        assert_eq!(merged.specifications.get("spec2").unwrap().title, Some("Spec 2".to_string()));
+    }
+
+    #[test]
+    fn test_build_merged_report_refs_from_first_report() {
+        // Test that refs array is taken from the first report
+        let ref1 = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: None,
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("MUST".to_string()),
+        };
+        
+        let ref2 = crate::merge::schema::JsonRefStatus {
+            spec: None,
+            citation: Some(true),
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: None,
+        };
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1.clone(), ref2.clone()],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1.clone(), ref2.clone()], // Same refs
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        
+        let merged = super::build_merged_report(
+            &[report1, report2],
+            &assignment,
+            HashMap::new(),
+            HashMap::new(),
+        );
+        
+        // Should have refs from first report
+        assert_eq!(merged.refs.len(), 2);
+        assert_eq!(merged.refs[0], ref1);
+        assert_eq!(merged.refs[1], ref2);
+    }
+
+    #[test]
+    fn test_build_merged_report_complete_workflow() {
+        // Test the complete workflow: collect, assign, merge, remap, build
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        let mut specs = HashMap::new();
+        specs.insert(
+            "spec1".to_string(),
+            crate::merge::schema::JsonSpecification {
+                title: Some("Test Spec".to_string()),
+                format: "markdown".to_string(),
+                requirements: vec![0, 1],
+                sections: vec![],
+            },
+        );
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(Some(1), Some(2), None, None, Some(vec![1])));
+        statuses1.insert("1".to_string(), create_test_status(Some(3), Some(4), None, None, None));
+        
+        let report1 = JsonReport {
+            blob_link: Some("https://github.com/example/repo".to_string()),
+            issue_link: Some("https://github.com/example/repo/issues".to_string()),
+            specifications: specs.clone(),
+            annotations: vec![anno1, anno2.clone()],
+            statuses: statuses1,
+            refs: vec![crate::merge::schema::JsonRefStatus::default()],
+        };
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(Some(5), Some(6), None, None, None));
+        
+        let report2 = JsonReport {
+            blob_link: Some("https://github.com/example/repo".to_string()),
+            issue_link: Some("https://github.com/example/repo/issues".to_string()),
+            specifications: specs.clone(),
+            annotations: vec![anno2],
+            statuses: statuses2,
+            refs: vec![crate::merge::schema::JsonRefStatus::default()],
+        };
+        
+        // Run the complete merge workflow
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone()], &collection);
+        let remapped_statuses = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1.clone(), report2.clone()]);
+        let merged_specs = merge_specifications(&[report1.clone(), report2.clone()]);
+        
+        let merged = super::build_merged_report(
+            &[report1, report2],
+            &assignment,
+            remapped_statuses,
+            merged_specs,
+        );
+        
+        // Verify the complete merged report
+        assert_eq!(merged.annotations.len(), 2); // anno1 and anno2 (deduplicated)
+        assert_eq!(merged.statuses.len(), 2);
+        assert_eq!(merged.specifications.len(), 1);
+        
+        // Verify links are consistent
+        assert_eq!(merged.blob_link, Some("https://github.com/example/repo".to_string()));
+        assert_eq!(merged.issue_link, Some("https://github.com/example/repo/issues".to_string()));
+        
+        // Verify anno2's status has merged counts (1+5=6, 2+6=8)
+        let anno2_status = merged.statuses.get("1").unwrap();
+        assert_eq!(anno2_status.spec, Some(8)); // 3 + 5
+        assert_eq!(anno2_status.incomplete, Some(10)); // 4 + 6
+        
+        // Verify anno1's related ID is remapped correctly (should point to anno2 at new ID 1)
+        let anno1_status = merged.statuses.get("0").unwrap();
+        assert_eq!(anno1_status.related, Some(vec![1]));
+    }
+
+    #[test]
+    fn test_build_merged_report_json_roundtrip() {
+        // Test that a merged report can be serialized and deserialized
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let mut specs = HashMap::new();
+        specs.insert(
+            "spec1".to_string(),
+            crate::merge::schema::JsonSpecification {
+                title: Some("Test".to_string()),
+                format: "markdown".to_string(),
+                requirements: vec![0],
+                sections: vec![],
+            },
+        );
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
+        
+        let report = JsonReport {
+            blob_link: Some("https://github.com/example/repo".to_string()),
+            issue_link: None,
+            specifications: specs.clone(),
+            annotations: vec![anno],
+            statuses: statuses.clone(),
+            refs: vec![crate::merge::schema::JsonRefStatus::default()],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        
+        let merged = super::build_merged_report(
+            &[report],
+            &assignment,
+            statuses,
+            specs,
+        );
+        
+        // Serialize to JSON
+        let json = serde_json::to_string(&merged).expect("Failed to serialize");
+        
+        // Deserialize back to JsonReport (should be compatible)
+        let deserialized: crate::merge::schema::JsonReport = 
+            serde_json::from_str(&json).expect("Failed to deserialize");
+        
+        // Verify key fields match
+        assert_eq!(deserialized.blob_link, merged.blob_link);
+        assert_eq!(deserialized.annotations.len(), merged.annotations.len());
+        assert_eq!(deserialized.statuses.len(), merged.statuses.len());
+        assert_eq!(deserialized.specifications.len(), merged.specifications.len());
+    }
 }
+

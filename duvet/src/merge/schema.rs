@@ -178,6 +178,46 @@ pub struct JsonRefStatus {
     pub level: Option<String>,
 }
 
+/// Merged report structure for serialization.
+///
+/// This structure represents the result of merging multiple JSON reports.
+/// It has the same schema as `JsonReport` to maintain compatibility with
+/// existing report viewers and tools.
+///
+/// The merged report contains:
+/// - Deduplicated annotations with new sequential IDs
+/// - Merged statuses with aggregated counts
+/// - Combined specifications from all input reports
+/// - Resolved blob_link and issue_link (if consistent across inputs)
+/// - Refs array from the first input report
+#[derive(Debug, Clone, Serialize)]
+pub struct MergedReport {
+    /// Optional link to blob/source code viewer
+    /// Included only if all input reports have the same value
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blob_link: Option<String>,
+    
+    /// Optional link to issue tracker
+    /// Included only if all input reports have the same value
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issue_link: Option<String>,
+    
+    /// Map of specification path to specification details
+    /// Contains all specifications from all input reports
+    pub specifications: HashMap<String, JsonSpecification>,
+    
+    /// Array of all deduplicated annotations with new sequential IDs
+    pub annotations: Vec<JsonAnnotation>,
+    
+    /// Map of annotation ID (as string) to merged status information
+    /// Status counts are aggregated for annotations with the same key
+    pub statuses: HashMap<String, JsonStatus>,
+    
+    /// Lookup table for all possible annotation status combinations
+    /// Taken from the first input report
+    pub refs: Vec<JsonRefStatus>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
