@@ -19,14 +19,14 @@
   - [x] 2.7 Implement `JsonRefStatus` structure
   - [x] 2.8 Add unit tests for deserialization using sample JSON from integration tests
 
-- [ ] 3. Implement file loading and validation
-  - [ ] 3.1 Implement async file reading for input JSON files using `tokio::fs`
-  - [ ] 3.2 Implement JSON parsing with `serde_json` and error handling
-  - [ ] 3.3 Implement basic schema validation (check required fields)
-  - [ ] 3.4 Add error context for file not found errors
-  - [ ] 3.5 Add error context for JSON parse errors
-  - [ ] 3.6 Add error context for schema validation errors
-  - [ ] 3.7 Add unit test for error handling with invalid inputs
+- [x] 3. Implement file loading and validation
+  - [x] 3.1 Implement async file reading for input JSON files using `tokio::fs`
+  - [x] 3.2 Implement JSON parsing with `serde_json` and error handling
+  - [x] 3.3 Implement basic schema validation (check required fields)
+  - [x] 3.4 Add error context for file not found errors
+  - [x] 3.5 Add error context for JSON parse errors
+  - [x] 3.6 Add error context for schema validation errors
+  - [x] 3.7 Add unit test for error handling with invalid inputs
 
 ## Phase 2: Annotation Key and ID Remapping
 
