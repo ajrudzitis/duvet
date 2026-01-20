@@ -74,12 +74,12 @@
 
 ## Phase 4: Specification and Link Merging
 
-- [ ] 10. Implement specification merging
-  - [ ] 10.1 Implement function to merge specifications from all reports
-  - [ ] 10.2 Detect duplicate specifications (same path)
-  - [ ] 10.3 Validate specification consistency (log warning if different)
-  - [ ] 10.4 Add unit tests for specification merging
-  - [ ] 10.5 Add unit tests for duplicate detection
+- [x] 10. Implement specification merging
+  - [x] 10.1 Implement function to merge specifications from all reports
+  - [x] 10.2 Detect duplicate specifications (same path)
+  - [x] 10.3 Validate specification consistency (log warning if different)
+  - [x] 10.4 Add unit tests for specification merging
+  - [x] 10.5 Add unit tests for duplicate detection
 
 - [ ] 11. Implement link conflict resolution
   - [ ] 11.1 Implement `resolve_blob_links()` function

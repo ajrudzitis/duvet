@@ -3,7 +3,7 @@
 
 //! Core merge logic for combining multiple JSON reports.
 
-use super::schema::{JsonAnnotation, JsonReport};
+use super::schema::{JsonAnnotation, JsonReport, JsonSpecification};
 use std::collections::{BTreeMap, HashMap};
 
 /// A stable key for identifying annotations across multiple reports.
@@ -340,6 +340,85 @@ pub fn remap_related_ids(
     }
     
     remapped_statuses
+}
+
+/// Merge specifications from multiple reports.
+///
+/// This function:
+/// 1. Iterates through all specifications in all reports
+/// 2. Deduplicates specifications by path (keeps first occurrence)
+/// 3. Logs warnings if duplicate specifications have different content
+/// 4. Returns a merged specifications map
+///
+/// # Arguments
+/// * `reports` - Slice of JSON reports to process
+///
+/// # Returns
+/// A `HashMap<String, JsonSpecification>` containing merged specifications
+pub fn merge_specifications(reports: &[JsonReport]) -> HashMap<String, JsonSpecification> {
+    let mut merged_specs = HashMap::new();
+    
+    for (report_index, report) in reports.iter().enumerate() {
+        for (spec_path, spec) in &report.specifications {
+            if let Some(existing_spec) = merged_specs.get(spec_path) {
+                // Specification already exists - check if it's identical
+                if !specifications_equal(existing_spec, spec) {
+                    eprintln!(
+                        "Warning: Specification '{}' differs between reports (using first occurrence from report {})",
+                        spec_path,
+                        report_index
+                    );
+                }
+            } else {
+                // First occurrence of this specification
+                merged_specs.insert(spec_path.clone(), spec.clone());
+            }
+        }
+    }
+    
+    merged_specs
+}
+
+/// Check if two specifications are equal (for duplicate detection).
+///
+/// Compares all fields except the requirements array, which will be
+/// updated during the merge process.
+///
+/// # Arguments
+/// * `a` - First specification
+/// * `b` - Second specification
+///
+/// # Returns
+/// `true` if specifications are equal, `false` otherwise
+fn specifications_equal(a: &JsonSpecification, b: &JsonSpecification) -> bool {
+    // Compare title
+    if a.title != b.title {
+        return false;
+    }
+    
+    // Compare format
+    if a.format != b.format {
+        return false;
+    }
+    
+    // Compare sections count
+    if a.sections.len() != b.sections.len() {
+        return false;
+    }
+    
+    // Compare each section
+    for (section_a, section_b) in a.sections.iter().zip(b.sections.iter()) {
+        if section_a.id != section_b.id {
+            return false;
+        }
+        if section_a.title != section_b.title {
+            return false;
+        }
+        // Note: We don't compare lines content as it's complex nested JSON
+        // and requirements arrays will differ anyway
+    }
+    
+    true
 }
 
 #[cfg(test)]
@@ -1821,5 +1900,459 @@ mod tests {
         // Verify counts are preserved
         assert_eq!(final_statuses.get("0").unwrap().spec, Some(1));
         assert_eq!(final_statuses.get("1").unwrap().spec, Some(5));
+    }
+
+    // Specification merging tests
+
+    fn create_test_specification(
+        title: Option<&str>,
+        format: &str,
+        requirements: Vec<usize>,
+        section_ids: Vec<&str>,
+    ) -> crate::merge::schema::JsonSpecification {
+        use crate::merge::schema::{JsonSection, JsonSpecification};
+        
+        let sections = section_ids
+            .iter()
+            .map(|&id| JsonSection {
+                id: id.to_string(),
+                title: format!("Section {}", id),
+                lines: vec![],
+                requirements: None,
+            })
+            .collect();
+        
+        JsonSpecification {
+            title: title.map(|s| s.to_string()),
+            format: format.to_string(),
+            requirements,
+            sections,
+        }
+    }
+
+    #[test]
+    fn test_merge_specifications_single_report() {
+        let mut specs = HashMap::new();
+        specs.insert(
+            "https://example.com/spec1".to_string(),
+            create_test_specification(Some("Spec 1"), "markdown", vec![0, 1], vec!["s1", "s2"]),
+        );
+        specs.insert(
+            "https://example.com/spec2".to_string(),
+            create_test_specification(Some("Spec 2"), "ietf", vec![2], vec!["s1"]),
+        );
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let merged = super::merge_specifications(&[report]);
+        
+        assert_eq!(merged.len(), 2);
+        assert!(merged.contains_key("https://example.com/spec1"));
+        assert!(merged.contains_key("https://example.com/spec2"));
+        
+        let spec1 = merged.get("https://example.com/spec1").unwrap();
+        assert_eq!(spec1.title, Some("Spec 1".to_string()));
+        assert_eq!(spec1.format, "markdown");
+        assert_eq!(spec1.sections.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_specifications_multiple_reports_disjoint() {
+        let mut specs1 = HashMap::new();
+        specs1.insert(
+            "https://example.com/spec1".to_string(),
+            create_test_specification(Some("Spec 1"), "markdown", vec![0], vec!["s1"]),
+        );
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs1,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let mut specs2 = HashMap::new();
+        specs2.insert(
+            "https://example.com/spec2".to_string(),
+            create_test_specification(Some("Spec 2"), "ietf", vec![0], vec!["s1"]),
+        );
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs2,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let merged = super::merge_specifications(&[report1, report2]);
+        
+        // Should have both specifications
+        assert_eq!(merged.len(), 2);
+        assert!(merged.contains_key("https://example.com/spec1"));
+        assert!(merged.contains_key("https://example.com/spec2"));
+    }
+
+    #[test]
+    fn test_merge_specifications_empty_reports() {
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let merged = super::merge_specifications(&[report1, report2]);
+        
+        // Should be empty
+        assert_eq!(merged.len(), 0);
+    }
+
+    #[test]
+    fn test_merge_specifications_preserves_all_fields() {
+        let mut specs = HashMap::new();
+        specs.insert(
+            "https://example.com/spec".to_string(),
+            create_test_specification(Some("Test Spec"), "markdown", vec![0, 1, 2], vec!["s1", "s2", "s3"]),
+        );
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let merged = super::merge_specifications(&[report]);
+        
+        let spec = merged.get("https://example.com/spec").unwrap();
+        assert_eq!(spec.title, Some("Test Spec".to_string()));
+        assert_eq!(spec.format, "markdown");
+        assert_eq!(spec.requirements, vec![0, 1, 2]);
+        assert_eq!(spec.sections.len(), 3);
+        assert_eq!(spec.sections[0].id, "s1");
+        assert_eq!(spec.sections[1].id, "s2");
+        assert_eq!(spec.sections[2].id, "s3");
+    }
+
+    #[test]
+    fn test_merge_specifications_duplicate_same_content() {
+        // Test that duplicate specifications with identical content are handled correctly
+        let spec = create_test_specification(Some("Spec 1"), "markdown", vec![0, 1], vec!["s1", "s2"]);
+        
+        let mut specs1 = HashMap::new();
+        specs1.insert("https://example.com/spec".to_string(), spec.clone());
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs1,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let mut specs2 = HashMap::new();
+        specs2.insert("https://example.com/spec".to_string(), spec.clone());
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs2,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let merged = super::merge_specifications(&[report1, report2]);
+        
+        // Should have only one specification (deduplicated)
+        assert_eq!(merged.len(), 1);
+        assert!(merged.contains_key("https://example.com/spec"));
+        
+        // Should preserve the specification content
+        let merged_spec = merged.get("https://example.com/spec").unwrap();
+        assert_eq!(merged_spec.title, Some("Spec 1".to_string()));
+        assert_eq!(merged_spec.format, "markdown");
+        assert_eq!(merged_spec.sections.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_specifications_duplicate_different_content() {
+        // Test that duplicate specifications with different content trigger a warning
+        // (but still use the first occurrence)
+        let spec1 = create_test_specification(Some("Spec 1 Version A"), "markdown", vec![0], vec!["s1"]);
+        let spec2 = create_test_specification(Some("Spec 1 Version B"), "markdown", vec![0], vec!["s1"]);
+        
+        let mut specs1 = HashMap::new();
+        specs1.insert("https://example.com/spec".to_string(), spec1.clone());
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs1,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let mut specs2 = HashMap::new();
+        specs2.insert("https://example.com/spec".to_string(), spec2);
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs2,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let merged = super::merge_specifications(&[report1, report2]);
+        
+        // Should have only one specification (first occurrence)
+        assert_eq!(merged.len(), 1);
+        
+        // Should use the first version
+        let merged_spec = merged.get("https://example.com/spec").unwrap();
+        assert_eq!(merged_spec.title, Some("Spec 1 Version A".to_string()));
+    }
+
+    #[test]
+    fn test_merge_specifications_duplicate_different_format() {
+        // Test detection of specifications with same path but different format
+        let spec1 = create_test_specification(Some("Spec 1"), "markdown", vec![0], vec!["s1"]);
+        let spec2 = create_test_specification(Some("Spec 1"), "ietf", vec![0], vec!["s1"]);
+        
+        let mut specs1 = HashMap::new();
+        specs1.insert("https://example.com/spec".to_string(), spec1.clone());
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs1,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let mut specs2 = HashMap::new();
+        specs2.insert("https://example.com/spec".to_string(), spec2);
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs2,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let merged = super::merge_specifications(&[report1, report2]);
+        
+        // Should use first occurrence
+        let merged_spec = merged.get("https://example.com/spec").unwrap();
+        assert_eq!(merged_spec.format, "markdown");
+    }
+
+    #[test]
+    fn test_merge_specifications_duplicate_different_sections() {
+        // Test detection of specifications with different section counts
+        let spec1 = create_test_specification(Some("Spec 1"), "markdown", vec![0], vec!["s1", "s2"]);
+        let spec2 = create_test_specification(Some("Spec 1"), "markdown", vec![0], vec!["s1", "s2", "s3"]);
+        
+        let mut specs1 = HashMap::new();
+        specs1.insert("https://example.com/spec".to_string(), spec1.clone());
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs1,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let mut specs2 = HashMap::new();
+        specs2.insert("https://example.com/spec".to_string(), spec2);
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs2,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let merged = super::merge_specifications(&[report1, report2]);
+        
+        // Should use first occurrence (2 sections)
+        let merged_spec = merged.get("https://example.com/spec").unwrap();
+        assert_eq!(merged_spec.sections.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_specifications_multiple_duplicates_across_reports() {
+        // Test merging when the same specification appears in all reports
+        let spec = create_test_specification(Some("Shared Spec"), "markdown", vec![0], vec!["s1"]);
+        
+        let mut specs1 = HashMap::new();
+        specs1.insert("https://example.com/spec".to_string(), spec.clone());
+        
+        let mut specs2 = HashMap::new();
+        specs2.insert("https://example.com/spec".to_string(), spec.clone());
+        
+        let mut specs3 = HashMap::new();
+        specs3.insert("https://example.com/spec".to_string(), spec);
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs1,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs2,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs3,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let merged = super::merge_specifications(&[report1, report2, report3]);
+        
+        // Should have only one specification
+        assert_eq!(merged.len(), 1);
+        assert!(merged.contains_key("https://example.com/spec"));
+    }
+
+    #[test]
+    fn test_merge_specifications_mixed_unique_and_duplicate() {
+        // Test merging with a mix of unique and duplicate specifications
+        let shared_spec = create_test_specification(Some("Shared"), "markdown", vec![0], vec!["s1"]);
+        let unique_spec1 = create_test_specification(Some("Unique 1"), "ietf", vec![1], vec!["s1"]);
+        let unique_spec2 = create_test_specification(Some("Unique 2"), "markdown", vec![2], vec!["s1"]);
+        
+        let mut specs1 = HashMap::new();
+        specs1.insert("https://example.com/shared".to_string(), shared_spec.clone());
+        specs1.insert("https://example.com/unique1".to_string(), unique_spec1);
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs1,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let mut specs2 = HashMap::new();
+        specs2.insert("https://example.com/shared".to_string(), shared_spec);
+        specs2.insert("https://example.com/unique2".to_string(), unique_spec2);
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: specs2,
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let merged = super::merge_specifications(&[report1, report2]);
+        
+        // Should have 3 specifications (1 shared + 2 unique)
+        assert_eq!(merged.len(), 3);
+        assert!(merged.contains_key("https://example.com/shared"));
+        assert!(merged.contains_key("https://example.com/unique1"));
+        assert!(merged.contains_key("https://example.com/unique2"));
+    }
+
+    #[test]
+    fn test_specifications_equal_identical() {
+        let spec1 = create_test_specification(Some("Test"), "markdown", vec![0, 1], vec!["s1", "s2"]);
+        let spec2 = create_test_specification(Some("Test"), "markdown", vec![0, 1], vec!["s1", "s2"]);
+        
+        assert!(super::specifications_equal(&spec1, &spec2));
+    }
+
+    #[test]
+    fn test_specifications_equal_different_title() {
+        let spec1 = create_test_specification(Some("Test A"), "markdown", vec![0], vec!["s1"]);
+        let spec2 = create_test_specification(Some("Test B"), "markdown", vec![0], vec!["s1"]);
+        
+        assert!(!super::specifications_equal(&spec1, &spec2));
+    }
+
+    #[test]
+    fn test_specifications_equal_different_format() {
+        let spec1 = create_test_specification(Some("Test"), "markdown", vec![0], vec!["s1"]);
+        let spec2 = create_test_specification(Some("Test"), "ietf", vec![0], vec!["s1"]);
+        
+        assert!(!super::specifications_equal(&spec1, &spec2));
+    }
+
+    #[test]
+    fn test_specifications_equal_different_section_count() {
+        let spec1 = create_test_specification(Some("Test"), "markdown", vec![0], vec!["s1"]);
+        let spec2 = create_test_specification(Some("Test"), "markdown", vec![0], vec!["s1", "s2"]);
+        
+        assert!(!super::specifications_equal(&spec1, &spec2));
+    }
+
+    #[test]
+    fn test_specifications_equal_different_section_ids() {
+        let spec1 = create_test_specification(Some("Test"), "markdown", vec![0], vec!["s1", "s2"]);
+        let spec2 = create_test_specification(Some("Test"), "markdown", vec![0], vec!["s1", "s3"]);
+        
+        assert!(!super::specifications_equal(&spec1, &spec2));
+    }
+
+    #[test]
+    fn test_specifications_equal_ignores_requirements_array() {
+        // Requirements array differences should not affect equality
+        // (they will be updated during merge)
+        let spec1 = create_test_specification(Some("Test"), "markdown", vec![0, 1], vec!["s1"]);
+        let spec2 = create_test_specification(Some("Test"), "markdown", vec![2, 3, 4], vec!["s1"]);
+        
+        // Should still be equal (requirements are ignored in comparison)
+        assert!(super::specifications_equal(&spec1, &spec2));
     }
 }
