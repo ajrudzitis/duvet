@@ -421,6 +421,78 @@ fn specifications_equal(a: &JsonSpecification, b: &JsonSpecification) -> bool {
     true
 }
 
+/// Resolve blob_link values from multiple reports.
+///
+/// This function implements the conflict resolution strategy:
+/// - If all non-null blob_links are identical, use that value
+/// - If blob_links differ, omit the field (return None)
+/// - If all blob_links are None, return None
+///
+/// # Arguments
+/// * `reports` - Slice of JSON reports to process
+///
+/// # Returns
+/// `Option<String>` - The resolved blob_link, or None if conflicting or all null
+pub fn resolve_blob_links(reports: &[JsonReport]) -> Option<String> {
+    // Collect all non-null blob_link values
+    let blob_links: Vec<&String> = reports
+        .iter()
+        .filter_map(|r| r.blob_link.as_ref())
+        .collect();
+    
+    // If no blob_links found, return None
+    if blob_links.is_empty() {
+        return None;
+    }
+    
+    // Check if all blob_links are identical
+    let first = blob_links[0];
+    let all_identical = blob_links.iter().all(|&link| link == first);
+    
+    if all_identical {
+        Some(first.clone())
+    } else {
+        // Conflict detected - omit field
+        None
+    }
+}
+
+/// Resolve issue_link values from multiple reports.
+///
+/// This function implements the conflict resolution strategy:
+/// - If all non-null issue_links are identical, use that value
+/// - If issue_links differ, omit the field (return None)
+/// - If all issue_links are None, return None
+///
+/// # Arguments
+/// * `reports` - Slice of JSON reports to process
+///
+/// # Returns
+/// `Option<String>` - The resolved issue_link, or None if conflicting or all null
+pub fn resolve_issue_links(reports: &[JsonReport]) -> Option<String> {
+    // Collect all non-null issue_link values
+    let issue_links: Vec<&String> = reports
+        .iter()
+        .filter_map(|r| r.issue_link.as_ref())
+        .collect();
+    
+    // If no issue_links found, return None
+    if issue_links.is_empty() {
+        return None;
+    }
+    
+    // Check if all issue_links are identical
+    let first = issue_links[0];
+    let all_identical = issue_links.iter().all(|&link| link == first);
+    
+    if all_identical {
+        Some(first.clone())
+    } else {
+        // Conflict detected - omit field
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2354,5 +2426,433 @@ mod tests {
         
         // Should still be equal (requirements are ignored in comparison)
         assert!(super::specifications_equal(&spec1, &spec2));
+    }
+
+    // Link conflict resolution tests
+
+    #[test]
+    fn test_resolve_blob_links_all_identical() {
+        // Test that identical blob_links are preserved
+        let report1 = JsonReport {
+            blob_link: Some("https://github.com/org/repo/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: Some("https://github.com/org/repo/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: Some("https://github.com/org/repo/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_blob_links(&[report1, report2, report3]);
+        
+        assert_eq!(result, Some("https://github.com/org/repo/blob/main".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_issue_links_all_identical() {
+        // Test that identical issue_links are preserved
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: Some("https://github.com/org/repo/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: Some("https://github.com/org/repo/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_issue_links(&[report1, report2]);
+        
+        assert_eq!(result, Some("https://github.com/org/repo/issues".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_blob_links_consistent_with_some_null() {
+        // Test that consistent non-null values are preserved even when some reports have None
+        let report1 = JsonReport {
+            blob_link: Some("https://github.com/org/repo/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None, // This report has no blob_link
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: Some("https://github.com/org/repo/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_blob_links(&[report1, report2, report3]);
+        
+        // Should preserve the consistent value
+        assert_eq!(result, Some("https://github.com/org/repo/blob/main".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_issue_links_consistent_with_some_null() {
+        // Test that consistent non-null values are preserved even when some reports have None
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None, // This report has no issue_link
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: Some("https://github.com/org/repo/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: Some("https://github.com/org/repo/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_issue_links(&[report1, report2, report3]);
+        
+        // Should preserve the consistent value
+        assert_eq!(result, Some("https://github.com/org/repo/issues".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_blob_links_conflicting() {
+        // Test that conflicting blob_links result in None
+        let report1 = JsonReport {
+            blob_link: Some("https://github.com/org/repo1/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: Some("https://github.com/org/repo2/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_blob_links(&[report1, report2]);
+        
+        // Should omit field due to conflict
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_issue_links_conflicting() {
+        // Test that conflicting issue_links result in None
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: Some("https://github.com/org/repo1/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: Some("https://github.com/org/repo2/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: Some("https://github.com/org/repo3/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_issue_links(&[report1, report2, report3]);
+        
+        // Should omit field due to conflict
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_blob_links_conflicting_with_null() {
+        // Test that conflicting non-null values result in None even with null values present
+        let report1 = JsonReport {
+            blob_link: Some("https://github.com/org/repo1/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: Some("https://github.com/org/repo2/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_blob_links(&[report1, report2, report3]);
+        
+        // Should omit field due to conflict between repo1 and repo2
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_blob_links_single_report() {
+        // Test that a single report's blob_link is preserved
+        let report = JsonReport {
+            blob_link: Some("https://github.com/org/repo/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_blob_links(&[report]);
+        
+        assert_eq!(result, Some("https://github.com/org/repo/blob/main".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_issue_links_single_report() {
+        // Test that a single report's issue_link is preserved
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: Some("https://github.com/org/repo/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_issue_links(&[report]);
+        
+        assert_eq!(result, Some("https://github.com/org/repo/issues".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_blob_links_single_non_null_among_many() {
+        // Test that a single non-null value among many null values is preserved
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: Some("https://github.com/org/repo/blob/main".to_string()),
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report4 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_blob_links(&[report1, report2, report3, report4]);
+        
+        // Should preserve the single non-null value
+        assert_eq!(result, Some("https://github.com/org/repo/blob/main".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_issue_links_single_non_null_among_many() {
+        // Test that a single non-null value among many null values is preserved
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: Some("https://github.com/org/repo/issues".to_string()),
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_issue_links(&[report1, report2, report3]);
+        
+        // Should preserve the single non-null value
+        assert_eq!(result, Some("https://github.com/org/repo/issues".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_blob_links_all_null() {
+        // Test that all null blob_links result in None
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_blob_links(&[report1, report2, report3]);
+        
+        // Should return None when all are null
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_issue_links_all_null() {
+        // Test that all null issue_links result in None
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::resolve_issue_links(&[report1, report2]);
+        
+        // Should return None when all are null
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_blob_links_empty_reports() {
+        // Test that empty reports array returns None
+        let result = super::resolve_blob_links(&[]);
+        
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_issue_links_empty_reports() {
+        // Test that empty reports array returns None
+        let result = super::resolve_issue_links(&[]);
+        
+        assert_eq!(result, None);
     }
 }

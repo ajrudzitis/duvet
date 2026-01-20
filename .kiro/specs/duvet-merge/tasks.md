@@ -81,13 +81,13 @@
   - [x] 10.4 Add unit tests for specification merging
   - [x] 10.5 Add unit tests for duplicate detection
 
-- [ ] 11. Implement link conflict resolution
-  - [ ] 11.1 Implement `resolve_blob_links()` function
-  - [ ] 11.2 Implement `resolve_issue_links()` function
-  - [ ] 11.3 Add tests for consistent links (should preserve)
-  - [ ] 11.4 Add tests for conflicting links (should omit)
-  - [ ] 11.5 Add tests for single link (should preserve)
-  - [ ] 11.6 Add tests for all null links (should omit)
+- [x] 11. Implement link conflict resolution
+  - [x] 11.1 Implement `resolve_blob_links()` function
+  - [x] 11.2 Implement `resolve_issue_links()` function
+  - [x] 11.3 Add tests for consistent links (should preserve)
+  - [x] 11.4 Add tests for conflicting links (should omit)
+  - [x] 11.5 Add tests for single link (should preserve)
+  - [x] 11.6 Add tests for all null links (should omit)
 
 - [ ] 12. Implement refs array handling
   - [ ] 12.1 Extract refs array from first input report
