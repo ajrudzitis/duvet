@@ -37,12 +37,12 @@
   - [x] 4.4 Add unit tests for key generation
   - [x] 4.5 Add unit tests for key equality and ordering
 
-- [ ] 5. Implement annotation collection and deduplication
-  - [ ] 5.1 Implement function to collect annotations from all reports
-  - [ ] 5.2 Build `BTreeMap<AnnotationKey, JsonAnnotation>` for deduplication
-  - [ ] 5.3 Build `HashMap<(report_index, old_id), AnnotationKey>` for ID tracking
-  - [ ] 5.4 Add unit tests for deduplication logic
-  - [ ] 5.5 Add unit tests for ID tracking
+- [x] 5. Implement annotation collection and deduplication
+  - [x] 5.1 Implement function to collect annotations from all reports
+  - [x] 5.2 Build `BTreeMap<AnnotationKey, JsonAnnotation>` for deduplication
+  - [x] 5.3 Build `HashMap<(report_index, old_id), AnnotationKey>` for ID tracking
+  - [x] 5.4 Add unit tests for deduplication logic
+  - [x] 5.5 Add unit tests for ID tracking
 
 - [ ] 6. Implement new ID assignment
   - [ ] 6.1 Implement function to assign new sequential IDs to annotations
