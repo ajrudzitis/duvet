@@ -44,12 +44,12 @@
   - [x] 5.4 Add unit tests for deduplication logic
   - [x] 5.5 Add unit tests for ID tracking
 
-- [ ] 6. Implement new ID assignment
-  - [ ] 6.1 Implement function to assign new sequential IDs to annotations
-  - [ ] 6.2 Build `HashMap<AnnotationKey, usize>` for key-to-new-ID mapping
-  - [ ] 6.3 Create merged annotations vector with new ordering
-  - [ ] 6.4 Add unit tests for ID assignment
-  - [ ] 6.5 Add unit tests verifying deterministic ordering
+- [x] 6. Implement new ID assignment
+  - [x] 6.1 Implement function to assign new sequential IDs to annotations
+  - [x] 6.2 Build `HashMap<AnnotationKey, usize>` for key-to-new-ID mapping
+  - [x] 6.3 Create merged annotations vector with new ordering
+  - [x] 6.4 Add unit tests for ID assignment
+  - [x] 6.5 Add unit tests verifying deterministic ordering
 
 ## Phase 3: Status Merging
 

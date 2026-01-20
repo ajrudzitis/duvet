@@ -58,6 +58,26 @@ impl AnnotationCollection {
     }
 }
 
+/// Result of assigning new sequential IDs to annotations.
+#[derive(Debug)]
+pub struct IdAssignment {
+    /// Merged annotations in their new order with sequential IDs
+    pub merged_annotations: Vec<JsonAnnotation>,
+    
+    /// Mapping from annotation key to new sequential ID
+    pub key_to_new_id: HashMap<AnnotationKey, usize>,
+}
+
+impl IdAssignment {
+    /// Create a new empty ID assignment
+    pub fn new() -> Self {
+        Self {
+            merged_annotations: Vec::new(),
+            key_to_new_id: HashMap::new(),
+        }
+    }
+}
+
 /// Collect and deduplicate annotations from multiple reports.
 ///
 /// This function:
@@ -88,6 +108,32 @@ pub fn collect_annotations(reports: &[JsonReport]) -> AnnotationCollection {
     }
     
     collection
+}
+
+/// Assign new sequential IDs to annotations based on their sorted keys.
+///
+/// This function:
+/// 1. Iterates through annotations in sorted order (by AnnotationKey)
+/// 2. Assigns sequential IDs starting from 0
+/// 3. Builds a mapping from annotation key to new ID
+/// 4. Creates a vector of merged annotations in the new order
+///
+/// # Arguments
+/// * `collection` - The annotation collection with deduplicated annotations
+///
+/// # Returns
+/// An `IdAssignment` containing the merged annotations vector and key-to-ID mapping
+pub fn assign_new_ids(collection: &AnnotationCollection) -> IdAssignment {
+    let mut assignment = IdAssignment::new();
+    
+    // BTreeMap iteration is in sorted order by key
+    for (key, annotation) in &collection.annotation_map {
+        let new_id = assignment.merged_annotations.len();
+        assignment.merged_annotations.push(annotation.clone());
+        assignment.key_to_new_id.insert(key.clone(), new_id);
+    }
+    
+    assignment
 }
 
 #[cfg(test)]
@@ -950,6 +996,415 @@ mod tests {
         for i in 1..5 {
             assert_eq!(keys[0], keys[i]);
         }
+    }
+
+    #[test]
+    fn test_assign_new_ids_empty_collection() {
+        let collection = AnnotationCollection::new();
+        let assignment = assign_new_ids(&collection);
+        
+        assert_eq!(assignment.merged_annotations.len(), 0);
+        assert_eq!(assignment.key_to_new_id.len(), 0);
+    }
+
+    #[test]
+    fn test_assign_new_ids_single_annotation() {
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let key = AnnotationKey::from(&anno);
+        
+        let mut collection = AnnotationCollection::new();
+        collection.annotation_map.insert(key.clone(), anno.clone());
+        
+        let assignment = assign_new_ids(&collection);
+        
+        assert_eq!(assignment.merged_annotations.len(), 1);
+        assert_eq!(assignment.key_to_new_id.len(), 1);
+        
+        // Should assign ID 0
+        assert_eq!(assignment.key_to_new_id.get(&key), Some(&0));
+        assert_eq!(assignment.merged_annotations[0].source, "src/lib.rs");
+    }
+
+    #[test]
+    fn test_assign_new_ids_multiple_annotations() {
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        
+        let key1 = AnnotationKey::from(&anno1);
+        let key2 = AnnotationKey::from(&anno2);
+        let key3 = AnnotationKey::from(&anno3);
+        
+        let mut collection = AnnotationCollection::new();
+        collection.annotation_map.insert(key1.clone(), anno1);
+        collection.annotation_map.insert(key2.clone(), anno2);
+        collection.annotation_map.insert(key3.clone(), anno3);
+        
+        let assignment = assign_new_ids(&collection);
+        
+        assert_eq!(assignment.merged_annotations.len(), 3);
+        assert_eq!(assignment.key_to_new_id.len(), 3);
+        
+        // Should assign sequential IDs 0, 1, 2
+        assert_eq!(assignment.key_to_new_id.get(&key1), Some(&0));
+        assert_eq!(assignment.key_to_new_id.get(&key2), Some(&1));
+        assert_eq!(assignment.key_to_new_id.get(&key3), Some(&2));
+    }
+
+    #[test]
+    fn test_assign_new_ids_preserves_annotation_content() {
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let key = AnnotationKey::from(&anno);
+        
+        let mut collection = AnnotationCollection::new();
+        collection.annotation_map.insert(key.clone(), anno.clone());
+        
+        let assignment = assign_new_ids(&collection);
+        
+        // Verify annotation content is preserved
+        assert_eq!(assignment.merged_annotations[0].source, anno.source);
+        assert_eq!(assignment.merged_annotations[0].target_path, anno.target_path);
+        assert_eq!(assignment.merged_annotations[0].target_section, anno.target_section);
+        assert_eq!(assignment.merged_annotations[0].line, anno.line);
+    }
+
+    #[test]
+    fn test_assign_new_ids_sorted_order() {
+        // Create annotations in unsorted order
+        let anno_z = create_test_annotation("src/z.rs", "spec1", Some("s1"), Some(10));
+        let anno_a = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno_m = create_test_annotation("src/m.rs", "spec1", Some("s1"), Some(10));
+        
+        let key_z = AnnotationKey::from(&anno_z);
+        let key_a = AnnotationKey::from(&anno_a);
+        let key_m = AnnotationKey::from(&anno_m);
+        
+        let mut collection = AnnotationCollection::new();
+        // Insert in unsorted order
+        collection.annotation_map.insert(key_z.clone(), anno_z);
+        collection.annotation_map.insert(key_a.clone(), anno_a);
+        collection.annotation_map.insert(key_m.clone(), anno_m);
+        
+        let assignment = assign_new_ids(&collection);
+        
+        // BTreeMap should maintain sorted order, so IDs should be assigned in sorted order
+        assert_eq!(assignment.merged_annotations[0].source, "src/a.rs");
+        assert_eq!(assignment.merged_annotations[1].source, "src/m.rs");
+        assert_eq!(assignment.merged_annotations[2].source, "src/z.rs");
+        
+        // Verify ID mappings match the sorted order
+        assert_eq!(assignment.key_to_new_id.get(&key_a), Some(&0));
+        assert_eq!(assignment.key_to_new_id.get(&key_m), Some(&1));
+        assert_eq!(assignment.key_to_new_id.get(&key_z), Some(&2));
+    }
+
+    #[test]
+    fn test_assign_new_ids_bidirectional_lookup() {
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        let key1 = AnnotationKey::from(&anno1);
+        let key2 = AnnotationKey::from(&anno2);
+        
+        let mut collection = AnnotationCollection::new();
+        collection.annotation_map.insert(key1.clone(), anno1.clone());
+        collection.annotation_map.insert(key2.clone(), anno2.clone());
+        
+        let assignment = assign_new_ids(&collection);
+        
+        // Test bidirectional lookup: key -> ID -> annotation
+        let id1 = assignment.key_to_new_id.get(&key1).unwrap();
+        let id2 = assignment.key_to_new_id.get(&key2).unwrap();
+        
+        assert_eq!(assignment.merged_annotations[*id1].source, anno1.source);
+        assert_eq!(assignment.merged_annotations[*id2].source, anno2.source);
+    }
+
+    #[test]
+    fn test_assign_new_ids_from_full_collection() {
+        // Test with a collection created by collect_annotations
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![
+                create_test_annotation("src/z.rs", "spec1", Some("s1"), Some(10)),
+                create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(20)),
+            ],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![
+                create_test_annotation("src/m.rs", "spec1", Some("s1"), Some(30)),
+            ],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1, report2]);
+        let assignment = assign_new_ids(&collection);
+        
+        // Should have 3 annotations in sorted order
+        assert_eq!(assignment.merged_annotations.len(), 3);
+        assert_eq!(assignment.merged_annotations[0].source, "src/a.rs");
+        assert_eq!(assignment.merged_annotations[1].source, "src/m.rs");
+        assert_eq!(assignment.merged_annotations[2].source, "src/z.rs");
+        
+        // Verify all keys have mappings
+        assert_eq!(assignment.key_to_new_id.len(), 3);
+    }
+
+    #[test]
+    fn test_assign_new_ids_with_deduplication() {
+        // Test that deduplicated annotations get single ID
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1, report2]);
+        let assignment = assign_new_ids(&collection);
+        
+        // Should have only 1 annotation (deduplicated)
+        assert_eq!(assignment.merged_annotations.len(), 1);
+        assert_eq!(assignment.key_to_new_id.len(), 1);
+        
+        // Both old IDs should map to the same key, which maps to ID 0
+        let key = AnnotationKey::from(&anno);
+        assert_eq!(assignment.key_to_new_id.get(&key), Some(&0));
+    }
+
+    #[test]
+    fn test_deterministic_ordering_same_input_order() {
+        // Test that the same input produces the same output order
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1.clone(), anno2.clone(), anno3.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        // Run twice with same input
+        let collection1 = collect_annotations(&[report.clone()]);
+        let assignment1 = assign_new_ids(&collection1);
+        
+        let collection2 = collect_annotations(&[report]);
+        let assignment2 = assign_new_ids(&collection2);
+        
+        // Should produce identical results
+        assert_eq!(assignment1.merged_annotations.len(), assignment2.merged_annotations.len());
+        for i in 0..assignment1.merged_annotations.len() {
+            assert_eq!(assignment1.merged_annotations[i].source, assignment2.merged_annotations[i].source);
+        }
+    }
+
+    #[test]
+    fn test_deterministic_ordering_different_input_order() {
+        // Test that different input order produces the same output order
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        
+        let report_ordered = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1.clone(), anno2.clone(), anno3.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report_reversed = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno3.clone(), anno2.clone(), anno1.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let collection1 = collect_annotations(&[report_ordered]);
+        let assignment1 = assign_new_ids(&collection1);
+        
+        let collection2 = collect_annotations(&[report_reversed]);
+        let assignment2 = assign_new_ids(&collection2);
+        
+        // Should produce identical output order (sorted)
+        assert_eq!(assignment1.merged_annotations.len(), 3);
+        assert_eq!(assignment2.merged_annotations.len(), 3);
+        
+        for i in 0..3 {
+            assert_eq!(assignment1.merged_annotations[i].source, assignment2.merged_annotations[i].source);
+        }
+        
+        // Both should be in sorted order
+        assert_eq!(assignment1.merged_annotations[0].source, "src/a.rs");
+        assert_eq!(assignment1.merged_annotations[1].source, "src/b.rs");
+        assert_eq!(assignment1.merged_annotations[2].source, "src/c.rs");
+    }
+
+    #[test]
+    fn test_deterministic_ordering_multiple_reports_different_order() {
+        // Test that report order doesn't affect final annotation order
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno2.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno3.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        // Try different report orders
+        let collection1 = collect_annotations(&[report1.clone(), report2.clone(), report3.clone()]);
+        let assignment1 = assign_new_ids(&collection1);
+        
+        let collection2 = collect_annotations(&[report3.clone(), report1.clone(), report2.clone()]);
+        let assignment2 = assign_new_ids(&collection2);
+        
+        let collection3 = collect_annotations(&[report2, report3, report1]);
+        let assignment3 = assign_new_ids(&collection3);
+        
+        // All should produce the same sorted output
+        assert_eq!(assignment1.merged_annotations.len(), 3);
+        assert_eq!(assignment2.merged_annotations.len(), 3);
+        assert_eq!(assignment3.merged_annotations.len(), 3);
+        
+        for i in 0..3 {
+            assert_eq!(assignment1.merged_annotations[i].source, assignment2.merged_annotations[i].source);
+            assert_eq!(assignment2.merged_annotations[i].source, assignment3.merged_annotations[i].source);
+        }
+    }
+
+    #[test]
+    fn test_deterministic_ordering_complex_keys() {
+        // Test deterministic ordering with complex keys (different target_path, section, line)
+        let anno1 = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/lib.rs", "spec1", Some("s2"), Some(10));
+        let anno4 = create_test_annotation("src/lib.rs", "spec2", Some("s1"), Some(10));
+        
+        let report_order1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1.clone(), anno2.clone(), anno3.clone(), anno4.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report_order2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno4.clone(), anno3.clone(), anno2.clone(), anno1.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let collection1 = collect_annotations(&[report_order1]);
+        let assignment1 = assign_new_ids(&collection1);
+        
+        let collection2 = collect_annotations(&[report_order2]);
+        let assignment2 = assign_new_ids(&collection2);
+        
+        // Should produce identical ordering
+        assert_eq!(assignment1.merged_annotations.len(), 4);
+        assert_eq!(assignment2.merged_annotations.len(), 4);
+        
+        for i in 0..4 {
+            let a1 = &assignment1.merged_annotations[i];
+            let a2 = &assignment2.merged_annotations[i];
+            assert_eq!(a1.source, a2.source);
+            assert_eq!(a1.target_path, a2.target_path);
+            assert_eq!(a1.target_section, a2.target_section);
+            assert_eq!(a1.line, a2.line);
+        }
+    }
+
+    #[test]
+    fn test_deterministic_ordering_with_none_values() {
+        // Test ordering with None values for section and line
+        let anno1 = create_test_annotation("src/lib.rs", "spec1", None, Some(10));
+        let anno2 = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let anno3 = create_test_annotation("src/lib.rs", "spec1", Some("s1"), None);
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno2.clone(), anno3.clone(), anno1.clone()],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report]);
+        let assignment = assign_new_ids(&collection);
+        
+        // Verify deterministic ordering (None < Some for section, 0 < 10 for line)
+        assert_eq!(assignment.merged_annotations.len(), 3);
+        
+        // anno1: section=None, line=10 -> (None, 10)
+        // anno2: section=Some("s1"), line=10 -> (Some("s1"), 10)
+        // anno3: section=Some("s1"), line=None (0) -> (Some("s1"), 0)
+        
+        // Expected order: (None, 10) < (Some("s1"), 0) < (Some("s1"), 10)
+        assert_eq!(assignment.merged_annotations[0].target_section, None);
+        assert_eq!(assignment.merged_annotations[0].line, Some(10));
+        
+        assert_eq!(assignment.merged_annotations[1].target_section, Some("s1".to_string()));
+        assert_eq!(assignment.merged_annotations[1].line, None);
+        
+        assert_eq!(assignment.merged_annotations[2].target_section, Some("s1".to_string()));
+        assert_eq!(assignment.merged_annotations[2].line, Some(10));
     }
 }
 
