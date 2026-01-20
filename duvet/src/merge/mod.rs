@@ -3,6 +3,7 @@
 
 //! Merge subcommand for combining multiple JSON reports.
 
+pub mod logic;
 pub mod schema;
 
 use crate::Result;

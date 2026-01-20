@@ -30,12 +30,12 @@
 
 ## Phase 2: Annotation Key and ID Remapping
 
-- [ ] 4. Implement AnnotationKey
-  - [ ] 4.1 Create `AnnotationKey` struct in `duvet/src/merge/logic.rs`
-  - [ ] 4.2 Implement `From<&JsonAnnotation>` for `AnnotationKey`
-  - [ ] 4.3 Derive `Hash`, `Eq`, `Ord` traits for use in maps
-  - [ ] 4.4 Add unit tests for key generation
-  - [ ] 4.5 Add unit tests for key equality and ordering
+- [x] 4. Implement AnnotationKey
+  - [x] 4.1 Create `AnnotationKey` struct in `duvet/src/merge/logic.rs`
+  - [x] 4.2 Implement `From<&JsonAnnotation>` for `AnnotationKey`
+  - [x] 4.3 Derive `Hash`, `Eq`, `Ord` traits for use in maps
+  - [x] 4.4 Add unit tests for key generation
+  - [x] 4.5 Add unit tests for key equality and ordering
 
 - [ ] 5. Implement annotation collection and deduplication
   - [ ] 5.1 Implement function to collect annotations from all reports
