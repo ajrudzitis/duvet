@@ -89,10 +89,10 @@
   - [x] 11.5 Add tests for single link (should preserve)
   - [x] 11.6 Add tests for all null links (should omit)
 
-- [ ] 12. Implement refs array handling
-  - [ ] 12.1 Extract refs array from first input report
-  - [ ] 12.2 Optionally validate refs arrays are identical across reports
-  - [ ] 12.3 Add unit tests for refs array handling
+- [x] 12. Implement refs array handling
+  - [x] 12.1 Extract refs array from first input report
+  - [x] 12.2 Optionally validate refs arrays are identical across reports
+  - [x] 12.3 Add unit tests for refs array handling
 
 ## Phase 5: JSON Output Generation
 

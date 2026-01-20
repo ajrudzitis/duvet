@@ -493,6 +493,68 @@ pub fn resolve_issue_links(reports: &[JsonReport]) -> Option<String> {
     }
 }
 
+/// Extract the refs array from the first input report.
+///
+/// The refs array is a lookup table for all possible annotation status combinations.
+/// Since this is deterministic and doesn't depend on specific annotations,
+/// we use the refs array from the first report.
+///
+/// # Arguments
+/// * `reports` - Slice of JSON reports to process
+///
+/// # Returns
+/// A `Vec<JsonRefStatus>` containing the refs array from the first report,
+/// or an empty vector if no reports are provided
+pub fn extract_refs_array(reports: &[JsonReport]) -> Vec<super::schema::JsonRefStatus> {
+    reports
+        .first()
+        .map(|report| report.refs.clone())
+        .unwrap_or_default()
+}
+
+/// Validate that all refs arrays are identical across reports.
+///
+/// This function checks that all reports have the same refs array content.
+/// If refs arrays differ, it indicates a potential schema version mismatch
+/// or inconsistent report generation.
+///
+/// # Arguments
+/// * `reports` - Slice of JSON reports to process
+///
+/// # Returns
+/// `Ok(())` if all refs arrays are identical, or an error describing the mismatch
+pub fn validate_refs_arrays(reports: &[JsonReport]) -> Result<(), String> {
+    if reports.is_empty() {
+        return Ok(());
+    }
+    
+    let first_refs = &reports[0].refs;
+    
+    for (index, report) in reports.iter().enumerate().skip(1) {
+        if report.refs.len() != first_refs.len() {
+            return Err(format!(
+                "Refs array length mismatch: report 0 has {} entries, report {} has {} entries",
+                first_refs.len(),
+                index,
+                report.refs.len()
+            ));
+        }
+        
+        // Compare each ref entry
+        for (ref_index, (first_ref, report_ref)) in first_refs.iter().zip(report.refs.iter()).enumerate() {
+            if first_ref != report_ref {
+                return Err(format!(
+                    "Refs array content mismatch at index {}: report 0 and report {} have different ref entries",
+                    ref_index,
+                    index
+                ));
+            }
+        }
+    }
+    
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2854,5 +2916,578 @@ mod tests {
         let result = super::resolve_issue_links(&[]);
         
         assert_eq!(result, None);
+    }
+
+    // Refs array handling tests
+
+    #[test]
+    fn test_extract_refs_array_from_first_report() {
+        // Test that refs array is extracted from the first report
+        let ref1 = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: None,
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("MUST".to_string()),
+        };
+        
+        let ref2 = crate::merge::schema::JsonRefStatus {
+            spec: None,
+            citation: Some(true),
+            implication: None,
+            test: Some(true),
+            exception: None,
+            todo: None,
+            level: None,
+        };
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1.clone(), ref2.clone()],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![], // Different refs array
+        };
+        
+        let result = super::extract_refs_array(&[report1, report2]);
+        
+        // Should extract from first report
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], ref1);
+        assert_eq!(result[1], ref2);
+    }
+
+    #[test]
+    fn test_extract_refs_array_empty_reports() {
+        // Test that empty reports array returns empty vector
+        let result = super::extract_refs_array(&[]);
+        
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_extract_refs_array_single_report() {
+        // Test extraction from a single report
+        let ref_entry = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: Some(true),
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("SHOULD".to_string()),
+        };
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref_entry.clone()],
+        };
+        
+        let result = super::extract_refs_array(&[report]);
+        
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], ref_entry);
+    }
+
+    #[test]
+    fn test_extract_refs_array_empty_refs() {
+        // Test that empty refs array is handled correctly
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::extract_refs_array(&[report]);
+        
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_validate_refs_arrays_identical() {
+        // Test that identical refs arrays pass validation
+        let ref1 = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: None,
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("MUST".to_string()),
+        };
+        
+        let ref2 = crate::merge::schema::JsonRefStatus {
+            spec: None,
+            citation: Some(true),
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: None,
+        };
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1.clone(), ref2.clone()],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1.clone(), ref2.clone()],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1, ref2],
+        };
+        
+        let result = super::validate_refs_arrays(&[report1, report2, report3]);
+        
+        assert!(result.is_ok(), "Expected identical refs arrays to pass validation");
+    }
+
+    #[test]
+    fn test_validate_refs_arrays_different_length() {
+        // Test that refs arrays with different lengths fail validation
+        let ref1 = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: None,
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: None,
+        };
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1.clone(), ref1.clone()],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1], // Different length
+        };
+        
+        let result = super::validate_refs_arrays(&[report1, report2]);
+        
+        assert!(result.is_err(), "Expected error for different refs array lengths");
+        let err = result.unwrap_err();
+        assert!(err.contains("length mismatch"), "Error should mention length mismatch: {}", err);
+        assert!(err.contains("report 0 has 2 entries"), "Error should mention first report length: {}", err);
+        assert!(err.contains("report 1 has 1 entries"), "Error should mention second report length: {}", err);
+    }
+
+    #[test]
+    fn test_validate_refs_arrays_different_content() {
+        // Test that refs arrays with different content fail validation
+        let ref1 = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: None,
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("MUST".to_string()),
+        };
+        
+        let ref2 = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: None,
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("SHOULD".to_string()), // Different level
+        };
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref2],
+        };
+        
+        let result = super::validate_refs_arrays(&[report1, report2]);
+        
+        assert!(result.is_err(), "Expected error for different refs array content");
+        let err = result.unwrap_err();
+        assert!(err.contains("content mismatch"), "Error should mention content mismatch: {}", err);
+        assert!(err.contains("index 0"), "Error should mention the index: {}", err);
+    }
+
+    #[test]
+    fn test_validate_refs_arrays_empty_reports() {
+        // Test that empty reports array passes validation
+        let result = super::validate_refs_arrays(&[]);
+        
+        assert!(result.is_ok(), "Expected empty reports to pass validation");
+    }
+
+    #[test]
+    fn test_validate_refs_arrays_single_report() {
+        // Test that a single report always passes validation
+        let ref1 = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: Some(true),
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: None,
+        };
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1],
+        };
+        
+        let result = super::validate_refs_arrays(&[report]);
+        
+        assert!(result.is_ok(), "Expected single report to pass validation");
+    }
+
+    #[test]
+    fn test_validate_refs_arrays_all_empty() {
+        // Test that reports with empty refs arrays pass validation
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![],
+        };
+        
+        let result = super::validate_refs_arrays(&[report1, report2]);
+        
+        assert!(result.is_ok(), "Expected empty refs arrays to pass validation");
+    }
+
+    #[test]
+    fn test_validate_refs_arrays_complex_identical() {
+        // Test validation with complex refs arrays that are identical
+        let ref1 = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: Some(true),
+            implication: Some(false),
+            test: Some(true),
+            exception: None,
+            todo: Some(false),
+            level: Some("MUST".to_string()),
+        };
+        
+        let ref2 = crate::merge::schema::JsonRefStatus {
+            spec: None,
+            citation: Some(true),
+            implication: Some(true),
+            test: None,
+            exception: Some(true),
+            todo: None,
+            level: Some("SHOULD".to_string()),
+        };
+        
+        let ref3 = crate::merge::schema::JsonRefStatus::default();
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1.clone(), ref2.clone(), ref3.clone()],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1.clone(), ref2.clone(), ref3.clone()],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1, ref2, ref3],
+        };
+        
+        let result = super::validate_refs_arrays(&[report1, report2, report3]);
+        
+        assert!(result.is_ok(), "Expected identical complex refs arrays to pass validation");
+    }
+
+    #[test]
+    fn test_validate_refs_arrays_mismatch_at_end() {
+        // Test that mismatches at the end of the array are detected
+        let ref1 = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: None,
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: None,
+        };
+        
+        let ref2_a = crate::merge::schema::JsonRefStatus {
+            spec: None,
+            citation: Some(true),
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: None,
+        };
+        
+        let ref2_b = crate::merge::schema::JsonRefStatus {
+            spec: None,
+            citation: Some(false), // Different value
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: None,
+        };
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1.clone(), ref2_a],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1, ref2_b],
+        };
+        
+        let result = super::validate_refs_arrays(&[report1, report2]);
+        
+        assert!(result.is_err(), "Expected error for content mismatch");
+        let err = result.unwrap_err();
+        assert!(err.contains("content mismatch at index 1"), "Error should mention the index: {}", err);
+    }
+
+    #[test]
+    fn test_validate_refs_arrays_multiple_reports_all_identical() {
+        // Test validation with many reports that all have identical refs
+        let ref_entry = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: Some(true),
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("MUST".to_string()),
+        };
+        
+        let reports: Vec<JsonReport> = (0..5)
+            .map(|_| JsonReport {
+                blob_link: None,
+                issue_link: None,
+                specifications: HashMap::new(),
+                annotations: vec![],
+                statuses: HashMap::new(),
+                refs: vec![ref_entry.clone()],
+            })
+            .collect();
+        
+        let result = super::validate_refs_arrays(&reports);
+        
+        assert!(result.is_ok(), "Expected all identical refs to pass validation");
+    }
+
+    #[test]
+    fn test_extract_refs_array_preserves_order() {
+        // Test that the order of refs array is preserved
+        let ref1 = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: None,
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("MUST".to_string()),
+        };
+        
+        let ref2 = crate::merge::schema::JsonRefStatus {
+            spec: None,
+            citation: Some(true),
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("SHOULD".to_string()),
+        };
+        
+        let ref3 = crate::merge::schema::JsonRefStatus {
+            spec: None,
+            citation: None,
+            implication: Some(true),
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("MAY".to_string()),
+        };
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1.clone(), ref2.clone(), ref3.clone()],
+        };
+        
+        let result = super::extract_refs_array(&[report]);
+        
+        // Verify order is preserved
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], ref1);
+        assert_eq!(result[1], ref2);
+        assert_eq!(result[2], ref3);
+    }
+
+    #[test]
+    fn test_validate_refs_arrays_first_mismatch_reported() {
+        // Test that the first mismatch is reported when multiple mismatches exist
+        let ref1_a = crate::merge::schema::JsonRefStatus {
+            spec: Some(true),
+            citation: None,
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("MUST".to_string()),
+        };
+        
+        let ref1_b = crate::merge::schema::JsonRefStatus {
+            spec: Some(false), // Different
+            citation: None,
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: Some("MUST".to_string()),
+        };
+        
+        let ref2_a = crate::merge::schema::JsonRefStatus {
+            spec: None,
+            citation: Some(true),
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: None,
+        };
+        
+        let ref2_b = crate::merge::schema::JsonRefStatus {
+            spec: None,
+            citation: Some(false), // Also different
+            implication: None,
+            test: None,
+            exception: None,
+            todo: None,
+            level: None,
+        };
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1_a, ref2_a],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![],
+            statuses: HashMap::new(),
+            refs: vec![ref1_b, ref2_b],
+        };
+        
+        let result = super::validate_refs_arrays(&[report1, report2]);
+        
+        assert!(result.is_err(), "Expected error for content mismatch");
+        let err = result.unwrap_err();
+        // Should report the first mismatch (index 0)
+        assert!(err.contains("index 0"), "Error should mention the first mismatch index: {}", err);
     }
 }
