@@ -53,12 +53,12 @@
 
 ## Phase 3: Status Merging
 
-- [ ] 7. Implement status merging by key
-  - [ ] 7.1 Implement function to merge statuses using annotation keys
-  - [ ] 7.2 Implement status count addition (spec, incomplete, citation, etc.)
-  - [ ] 7.3 Implement related ID collection (before remapping)
-  - [ ] 7.4 Add unit tests for status merging with same key
-  - [ ] 7.5 Add unit tests for status merging with different keys
+- [x] 7. Implement status merging by key
+  - [x] 7.1 Implement function to merge statuses using annotation keys
+  - [x] 7.2 Implement status count addition (spec, incomplete, citation, etc.)
+  - [x] 7.3 Implement related ID collection (before remapping)
+  - [x] 7.4 Add unit tests for status merging with same key
+  - [x] 7.5 Add unit tests for status merging with different keys
 
 - [ ] 8. Implement related ID remapping
   - [ ] 8.1 Implement function to remap related annotation IDs

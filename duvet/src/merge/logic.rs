@@ -136,6 +136,99 @@ pub fn assign_new_ids(collection: &AnnotationCollection) -> IdAssignment {
     assignment
 }
 
+/// Result of merging statuses from multiple reports.
+#[derive(Debug)]
+pub struct StatusCollection {
+    /// Merged statuses, keyed by annotation key
+    /// Status counts are summed for annotations with the same key
+    pub status_by_key: HashMap<AnnotationKey, super::schema::JsonStatus>,
+}
+
+impl StatusCollection {
+    /// Create a new empty status collection
+    pub fn new() -> Self {
+        Self {
+            status_by_key: HashMap::new(),
+        }
+    }
+}
+
+/// Merge statuses from multiple reports using annotation keys.
+///
+/// This function:
+/// 1. Iterates through all statuses in all reports
+/// 2. Maps old annotation IDs to annotation keys using the collection
+/// 3. Merges status counts for annotations with the same key
+/// 4. Collects related annotation IDs (before remapping)
+///
+/// # Arguments
+/// * `reports` - Slice of JSON reports to process
+/// * `collection` - The annotation collection with ID-to-key mappings
+///
+/// # Returns
+/// A `StatusCollection` containing merged statuses keyed by annotation key
+pub fn merge_statuses(
+    reports: &[JsonReport],
+    collection: &AnnotationCollection,
+) -> StatusCollection {
+    let mut status_collection = StatusCollection::new();
+    
+    for (report_index, report) in reports.iter().enumerate() {
+        for (old_id_str, status) in &report.statuses {
+            // Parse the old annotation ID from the string key
+            let old_id = match old_id_str.parse::<usize>() {
+                Ok(id) => id,
+                Err(_) => continue, // Skip invalid IDs
+            };
+            
+            // Look up the annotation key for this old ID
+            let key = match collection.old_to_key.get(&(report_index, old_id)) {
+                Some(k) => k.clone(),
+                None => continue, // Skip if annotation not found
+            };
+            
+            // Merge the status into the collection
+            status_collection.status_by_key
+                .entry(key)
+                .and_modify(|existing| {
+                    // Add status counts
+                    add_status_counts(existing, status);
+                })
+                .or_insert_with(|| status.clone());
+        }
+    }
+    
+    status_collection
+}
+
+/// Add status counts from one status to another.
+///
+/// This helper function adds all count fields (spec, incomplete, citation, etc.)
+/// and unions the related IDs arrays.
+///
+/// # Arguments
+/// * `target` - The status to add counts to (modified in place)
+/// * `source` - The status to add counts from
+fn add_status_counts(
+    target: &mut super::schema::JsonStatus,
+    source: &super::schema::JsonStatus,
+) {
+    // Add each count field
+    target.spec = Some(target.spec.unwrap_or(0) + source.spec.unwrap_or(0));
+    target.incomplete = Some(target.incomplete.unwrap_or(0) + source.incomplete.unwrap_or(0));
+    target.citation = Some(target.citation.unwrap_or(0) + source.citation.unwrap_or(0));
+    target.implication = Some(target.implication.unwrap_or(0) + source.implication.unwrap_or(0));
+    target.test = Some(target.test.unwrap_or(0) + source.test.unwrap_or(0));
+    target.exception = Some(target.exception.unwrap_or(0) + source.exception.unwrap_or(0));
+    target.todo = Some(target.todo.unwrap_or(0) + source.todo.unwrap_or(0));
+    
+    // Union related IDs (will be remapped later)
+    if let Some(source_related) = &source.related {
+        let target_related = target.related.get_or_insert_with(Vec::new);
+        target_related.extend(source_related.iter().copied());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,6 +251,25 @@ mod tests {
             feature: None,
             tracking_issue: None,
             tags: None,
+        }
+    }
+
+    fn create_test_status(
+        spec: Option<usize>,
+        incomplete: Option<usize>,
+        citation: Option<usize>,
+        test: Option<usize>,
+        related: Option<Vec<usize>>,
+    ) -> crate::merge::schema::JsonStatus {
+        crate::merge::schema::JsonStatus {
+            spec,
+            incomplete,
+            citation,
+            implication: None,
+            test,
+            exception: None,
+            todo: None,
+            related,
         }
     }
 
@@ -1406,6 +1518,795 @@ mod tests {
         assert_eq!(assignment.merged_annotations[2].target_section, Some("s1".to_string()));
         assert_eq!(assignment.merged_annotations[2].line, Some(10));
     }
+
+    // Status merging tests
+
+    #[test]
+    fn test_merge_statuses_empty_reports() {
+        let reports = vec![];
+        let collection = collect_annotations(&reports);
+        let status_collection = merge_statuses(&reports, &collection);
+        
+        assert_eq!(status_collection.status_by_key.len(), 0);
+    }
+
+    #[test]
+    fn test_merge_statuses_single_report() {
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let key = AnnotationKey::from(&anno);
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(
+            Some(1),
+            Some(0),
+            Some(2),
+            Some(1),
+            None,
+        ));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let status_collection = merge_statuses(&[report], &collection);
+        
+        assert_eq!(status_collection.status_by_key.len(), 1);
+        
+        let status = status_collection.status_by_key.get(&key).unwrap();
+        assert_eq!(status.spec, Some(1));
+        assert_eq!(status.incomplete, Some(0));
+        assert_eq!(status.citation, Some(2));
+        assert_eq!(status.test, Some(1));
+    }
+
+    #[test]
+    fn test_merge_statuses_same_key_adds_counts() {
+        // Create same annotation in two reports
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let key = AnnotationKey::from(&anno);
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            None,
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(5),
+            Some(6),
+            Some(7),
+            Some(8),
+            None,
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let status_collection = merge_statuses(&[report1, report2], &collection);
+        
+        // Should have only one status entry (same key)
+        assert_eq!(status_collection.status_by_key.len(), 1);
+        
+        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        
+        // Counts should be added
+        assert_eq!(merged_status.spec, Some(6));        // 1 + 5
+        assert_eq!(merged_status.incomplete, Some(8));  // 2 + 6
+        assert_eq!(merged_status.citation, Some(10));   // 3 + 7
+        assert_eq!(merged_status.test, Some(12));       // 4 + 8
+    }
+
+    #[test]
+    fn test_merge_statuses_same_key_with_none_values() {
+        // Test that None values are treated as 0
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let key = AnnotationKey::from(&anno);
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,  // None should be treated as 0
+            Some(3),
+            None,
+            None,
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            None,
+            Some(2),
+            Some(4),
+            Some(5),
+            None,
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let status_collection = merge_statuses(&[report1, report2], &collection);
+        
+        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        
+        // None + Some(x) = Some(x)
+        assert_eq!(merged_status.spec, Some(1));        // 1 + 0
+        assert_eq!(merged_status.incomplete, Some(2));  // 0 + 2
+        assert_eq!(merged_status.citation, Some(7));    // 3 + 4
+        assert_eq!(merged_status.test, Some(5));        // 0 + 5
+    }
+
+    #[test]
+    fn test_merge_statuses_same_key_unions_related_ids() {
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let key = AnnotationKey::from(&anno);
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1, 2, 3]),
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![4, 5]),
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let status_collection = merge_statuses(&[report1, report2], &collection);
+        
+        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        
+        // Related IDs should be unioned (not deduplicated yet)
+        let related = merged_status.related.as_ref().unwrap();
+        assert_eq!(related.len(), 5);
+        assert!(related.contains(&1));
+        assert!(related.contains(&2));
+        assert!(related.contains(&3));
+        assert!(related.contains(&4));
+        assert!(related.contains(&5));
+    }
+
+    #[test]
+    fn test_merge_statuses_same_key_preserves_duplicate_related_ids() {
+        // Test that duplicate related IDs are preserved (deduplication happens later)
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let key = AnnotationKey::from(&anno);
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1, 2]),
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![2, 3]),  // 2 is duplicate
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let status_collection = merge_statuses(&[report1, report2], &collection);
+        
+        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        
+        // Should have 4 entries (including duplicate 2)
+        let related = merged_status.related.as_ref().unwrap();
+        assert_eq!(related.len(), 4);
+        assert_eq!(related, &vec![1, 2, 2, 3]);
+    }
+
+    #[test]
+    fn test_merge_statuses_same_key_three_reports() {
+        // Test merging the same annotation across three reports
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let key = AnnotationKey::from(&anno);
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(Some(1), Some(1), None, None, None));
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(Some(2), Some(2), None, None, None));
+        
+        let mut statuses3 = HashMap::new();
+        statuses3.insert("0".to_string(), create_test_status(Some(3), Some(3), None, None, None));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses: statuses3,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone(), report3.clone()]);
+        let status_collection = merge_statuses(&[report1, report2, report3], &collection);
+        
+        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        
+        // Should sum all three
+        assert_eq!(merged_status.spec, Some(6));        // 1 + 2 + 3
+        assert_eq!(merged_status.incomplete, Some(6));  // 1 + 2 + 3
+    }
+
+    #[test]
+    fn test_merge_statuses_different_keys_separate_entries() {
+        // Test that annotations with different keys get separate status entries
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        let key1 = AnnotationKey::from(&anno1);
+        let key2 = AnnotationKey::from(&anno2);
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(Some(1), Some(2), None, None, None));
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(Some(3), Some(4), None, None, None));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno2],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let status_collection = merge_statuses(&[report1, report2], &collection);
+        
+        // Should have two separate status entries
+        assert_eq!(status_collection.status_by_key.len(), 2);
+        
+        let status1 = status_collection.status_by_key.get(&key1).unwrap();
+        assert_eq!(status1.spec, Some(1));
+        assert_eq!(status1.incomplete, Some(2));
+        
+        let status2 = status_collection.status_by_key.get(&key2).unwrap();
+        assert_eq!(status2.spec, Some(3));
+        assert_eq!(status2.incomplete, Some(4));
+    }
+
+    #[test]
+    fn test_merge_statuses_multiple_annotations_per_report() {
+        // Test merging when each report has multiple annotations
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        
+        let key1 = AnnotationKey::from(&anno1);
+        let key2 = AnnotationKey::from(&anno2);
+        let key3 = AnnotationKey::from(&anno3);
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
+        statuses1.insert("1".to_string(), create_test_status(Some(2), None, None, None, None));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(Some(3), None, None, None, None));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno3],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let status_collection = merge_statuses(&[report1, report2], &collection);
+        
+        // Should have three separate status entries
+        assert_eq!(status_collection.status_by_key.len(), 3);
+        
+        assert!(status_collection.status_by_key.contains_key(&key1));
+        assert!(status_collection.status_by_key.contains_key(&key2));
+        assert!(status_collection.status_by_key.contains_key(&key3));
+    }
+
+    #[test]
+    fn test_merge_statuses_mixed_same_and_different_keys() {
+        // Test a realistic scenario with both shared and unique annotations
+        let shared_anno = create_test_annotation("src/shared.rs", "spec1", Some("s1"), Some(10));
+        let unique_anno1 = create_test_annotation("src/unique1.rs", "spec1", Some("s1"), Some(20));
+        let unique_anno2 = create_test_annotation("src/unique2.rs", "spec1", Some("s1"), Some(30));
+        
+        let shared_key = AnnotationKey::from(&shared_anno);
+        let unique_key1 = AnnotationKey::from(&unique_anno1);
+        let unique_key2 = AnnotationKey::from(&unique_anno2);
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(Some(1), Some(1), None, None, None)); // shared
+        statuses1.insert("1".to_string(), create_test_status(Some(2), Some(2), None, None, None)); // unique1
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![shared_anno.clone(), unique_anno1],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(Some(3), Some(3), None, None, None)); // shared
+        statuses2.insert("1".to_string(), create_test_status(Some(4), Some(4), None, None, None)); // unique2
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![shared_anno, unique_anno2],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let status_collection = merge_statuses(&[report1, report2], &collection);
+        
+        // Should have 3 status entries (1 shared + 2 unique)
+        assert_eq!(status_collection.status_by_key.len(), 3);
+        
+        // Shared annotation should have merged counts
+        let shared_status = status_collection.status_by_key.get(&shared_key).unwrap();
+        assert_eq!(shared_status.spec, Some(4));        // 1 + 3
+        assert_eq!(shared_status.incomplete, Some(4));  // 1 + 3
+        
+        // Unique annotations should have their original counts
+        let unique_status1 = status_collection.status_by_key.get(&unique_key1).unwrap();
+        assert_eq!(unique_status1.spec, Some(2));
+        assert_eq!(unique_status1.incomplete, Some(2));
+        
+        let unique_status2 = status_collection.status_by_key.get(&unique_key2).unwrap();
+        assert_eq!(unique_status2.spec, Some(4));
+        assert_eq!(unique_status2.incomplete, Some(4));
+    }
+
+    #[test]
+    fn test_merge_statuses_no_statuses_in_report() {
+        // Test that reports with annotations but no statuses are handled
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses: HashMap::new(), // Empty statuses
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let status_collection = merge_statuses(&[report], &collection);
+        
+        // Should have no status entries
+        assert_eq!(status_collection.status_by_key.len(), 0);
+    }
+
+    #[test]
+    fn test_merge_statuses_partial_statuses() {
+        // Test when only some annotations have statuses
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        let key1 = AnnotationKey::from(&anno1);
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
+        // No status for annotation 1 (anno2)
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let status_collection = merge_statuses(&[report], &collection);
+        
+        // Should have only one status entry
+        assert_eq!(status_collection.status_by_key.len(), 1);
+        assert!(status_collection.status_by_key.contains_key(&key1));
+    }
+
+    #[test]
+    fn test_merge_statuses_invalid_id_string() {
+        // Test that invalid ID strings are skipped gracefully
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("not-a-number".to_string(), create_test_status(Some(1), None, None, None, None));
+        statuses.insert("0".to_string(), create_test_status(Some(2), None, None, None, None));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let status_collection = merge_statuses(&[report], &collection);
+        
+        // Should only have the valid status entry
+        assert_eq!(status_collection.status_by_key.len(), 1);
+    }
+
+    #[test]
+    fn test_merge_statuses_missing_annotation_for_status() {
+        // Test when a status references an annotation ID that doesn't exist
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
+        statuses.insert("99".to_string(), create_test_status(Some(2), None, None, None, None)); // No annotation with ID 99
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let status_collection = merge_statuses(&[report], &collection);
+        
+        // Should only have the valid status entry (ID 99 is skipped)
+        assert_eq!(status_collection.status_by_key.len(), 1);
+    }
+
+    #[test]
+    fn test_merge_statuses_all_count_fields() {
+        // Test that all count fields are properly merged
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let key = AnnotationKey::from(&anno);
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), crate::merge::schema::JsonStatus {
+            spec: Some(1),
+            incomplete: Some(2),
+            citation: Some(3),
+            implication: Some(4),
+            test: Some(5),
+            exception: Some(6),
+            todo: Some(7),
+            related: None,
+        });
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), crate::merge::schema::JsonStatus {
+            spec: Some(10),
+            incomplete: Some(20),
+            citation: Some(30),
+            implication: Some(40),
+            test: Some(50),
+            exception: Some(60),
+            todo: Some(70),
+            related: None,
+        });
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let status_collection = merge_statuses(&[report1, report2], &collection);
+        
+        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        
+        // All fields should be summed
+        assert_eq!(merged_status.spec, Some(11));        // 1 + 10
+        assert_eq!(merged_status.incomplete, Some(22));  // 2 + 20
+        assert_eq!(merged_status.citation, Some(33));    // 3 + 30
+        assert_eq!(merged_status.implication, Some(44)); // 4 + 40
+        assert_eq!(merged_status.test, Some(55));        // 5 + 50
+        assert_eq!(merged_status.exception, Some(66));   // 6 + 60
+        assert_eq!(merged_status.todo, Some(77));        // 7 + 70
+    }
+
+    #[test]
+    fn test_merge_statuses_different_keys_no_interference() {
+        // Test that merging different keys doesn't interfere with each other
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        
+        let key1 = AnnotationKey::from(&anno1);
+        let key2 = AnnotationKey::from(&anno2);
+        let key3 = AnnotationKey::from(&anno3);
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
+        statuses.insert("1".to_string(), create_test_status(Some(2), None, None, None, None));
+        statuses.insert("2".to_string(), create_test_status(Some(3), None, None, None, None));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2, anno3],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let status_collection = merge_statuses(&[report], &collection);
+        
+        // Should have three separate entries
+        assert_eq!(status_collection.status_by_key.len(), 3);
+        
+        // Each should have its original value
+        assert_eq!(status_collection.status_by_key.get(&key1).unwrap().spec, Some(1));
+        assert_eq!(status_collection.status_by_key.get(&key2).unwrap().spec, Some(2));
+        assert_eq!(status_collection.status_by_key.get(&key3).unwrap().spec, Some(3));
+    }
+
+    #[test]
+    fn test_merge_statuses_different_keys_with_related_ids() {
+        // Test that different keys maintain separate related ID lists
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        let key1 = AnnotationKey::from(&anno1);
+        let key2 = AnnotationKey::from(&anno2);
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1, 2]),
+        ));
+        statuses.insert("1".to_string(), create_test_status(
+            Some(2),
+            None,
+            None,
+            None,
+            Some(vec![3, 4]),
+        ));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let status_collection = merge_statuses(&[report], &collection);
+        
+        // Each key should have its own related IDs
+        let status1 = status_collection.status_by_key.get(&key1).unwrap();
+        assert_eq!(status1.related.as_ref().unwrap(), &vec![1, 2]);
+        
+        let status2 = status_collection.status_by_key.get(&key2).unwrap();
+        assert_eq!(status2.related.as_ref().unwrap(), &vec![3, 4]);
+    }
+
+    #[test]
+    fn test_merge_statuses_empty_statuses_map() {
+        // Test that empty statuses map is handled correctly
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1],
+            statuses: HashMap::new(), // Empty
+            refs: vec![],
+        };
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno2],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let status_collection = merge_statuses(&[report1, report2], &collection);
+        
+        // Should only have status from report2
+        assert_eq!(status_collection.status_by_key.len(), 1);
+    }
+
+    #[test]
+    fn test_merge_statuses_preserves_zero_counts() {
+        // Test that explicit zero counts are preserved
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        let key = AnnotationKey::from(&anno);
+        
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(Some(0), Some(0), None, None, None));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(Some(1), Some(2), None, None, None));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let status_collection = merge_statuses(&[report1, report2], &collection);
+        
+        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        
+        // 0 + 1 = 1, 0 + 2 = 2
+        assert_eq!(merged_status.spec, Some(1));
+        assert_eq!(merged_status.incomplete, Some(2));
+    }
+
 }
-
-
