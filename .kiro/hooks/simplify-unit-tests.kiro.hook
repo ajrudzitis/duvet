@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Simplify Unit Tests",
+  "description": "Reviews unit tests after task completion to identify and remove redundant tests that duplicate type system guarantees or other test coverage",
+  "version": "1",
+  "when": {
+    "type": "agentStop"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Review all unit tests in the modified files. Identify and suggest removing redundant unit tests that:\n1. Assert properties already guaranteed by the type system\n2. Duplicate coverage provided by other unit tests in the same file\n3. Test trivial getters/setters without business logic\n4. Are overly verbose when simpler assertions would suffice\n\nProvide specific recommendations for simplification or removal with clear reasoning."
+  }
+}

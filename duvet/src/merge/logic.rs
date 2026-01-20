@@ -142,6 +142,10 @@ pub struct StatusCollection {
     /// Merged statuses, keyed by annotation key
     /// Status counts are summed for annotations with the same key
     pub status_by_key: HashMap<AnnotationKey, super::schema::JsonStatus>,
+    
+    /// Tracking of related IDs with their source report context
+    /// Maps annotation key to list of (report_index, old_related_id) pairs
+    pub related_ids_by_key: HashMap<AnnotationKey, Vec<(usize, usize)>>,
 }
 
 impl StatusCollection {
@@ -149,6 +153,7 @@ impl StatusCollection {
     pub fn new() -> Self {
         Self {
             status_by_key: HashMap::new(),
+            related_ids_by_key: HashMap::new(),
         }
     }
 }
@@ -159,7 +164,7 @@ impl StatusCollection {
 /// 1. Iterates through all statuses in all reports
 /// 2. Maps old annotation IDs to annotation keys using the collection
 /// 3. Merges status counts for annotations with the same key
-/// 4. Collects related annotation IDs (before remapping)
+/// 4. Collects related annotation IDs with their report context (before remapping)
 ///
 /// # Arguments
 /// * `reports` - Slice of JSON reports to process
@@ -189,19 +194,61 @@ pub fn merge_statuses(
             
             // Merge the status into the collection
             status_collection.status_by_key
-                .entry(key)
+                .entry(key.clone())
                 .and_modify(|existing| {
-                    // Add status counts
-                    add_status_counts(existing, status);
+                    // Add status counts (but not related IDs)
+                    add_status_counts_without_related(existing, status);
                 })
-                .or_insert_with(|| status.clone());
+                .or_insert_with(|| {
+                    let mut new_status = status.clone();
+                    // Clear related IDs - we'll track them separately
+                    new_status.related = None;
+                    new_status
+                });
+            
+            // Track related IDs with their report context
+            if let Some(related_ids) = &status.related {
+                let related_with_context: Vec<(usize, usize)> = related_ids
+                    .iter()
+                    .map(|&id| (report_index, id))
+                    .collect();
+                
+                status_collection.related_ids_by_key
+                    .entry(key)
+                    .or_insert_with(Vec::new)
+                    .extend(related_with_context);
+            }
         }
     }
     
     status_collection
 }
 
-/// Add status counts from one status to another.
+/// Add status counts from one status to another (without related IDs).
+///
+/// This helper function adds all count fields (spec, incomplete, citation, etc.)
+/// but does NOT merge related IDs (those are tracked separately with report context).
+///
+/// # Arguments
+/// * `target` - The status to add counts to (modified in place)
+/// * `source` - The status to add counts from
+fn add_status_counts_without_related(
+    target: &mut super::schema::JsonStatus,
+    source: &super::schema::JsonStatus,
+) {
+    // Add each count field
+    target.spec = Some(target.spec.unwrap_or(0) + source.spec.unwrap_or(0));
+    target.incomplete = Some(target.incomplete.unwrap_or(0) + source.incomplete.unwrap_or(0));
+    target.citation = Some(target.citation.unwrap_or(0) + source.citation.unwrap_or(0));
+    target.implication = Some(target.implication.unwrap_or(0) + source.implication.unwrap_or(0));
+    target.test = Some(target.test.unwrap_or(0) + source.test.unwrap_or(0));
+    target.exception = Some(target.exception.unwrap_or(0) + source.exception.unwrap_or(0));
+    target.todo = Some(target.todo.unwrap_or(0) + source.todo.unwrap_or(0));
+    
+    // Note: related IDs are NOT merged here - they're tracked separately
+}
+
+/// Add status counts from one status to another (legacy function for tests).
 ///
 /// This helper function adds all count fields (spec, incomplete, citation, etc.)
 /// and unions the related IDs arrays.
@@ -209,6 +256,7 @@ pub fn merge_statuses(
 /// # Arguments
 /// * `target` - The status to add counts to (modified in place)
 /// * `source` - The status to add counts from
+#[allow(dead_code)]
 fn add_status_counts(
     target: &mut super::schema::JsonStatus,
     source: &super::schema::JsonStatus,
@@ -227,6 +275,71 @@ fn add_status_counts(
         let target_related = target.related.get_or_insert_with(Vec::new);
         target_related.extend(source_related.iter().copied());
     }
+}
+
+/// Remap related annotation IDs in statuses from old IDs to new IDs.
+///
+/// This function:
+/// 1. Iterates through all statuses
+/// 2. For each related ID (with report context), looks up the annotation key
+/// 3. Maps the annotation key to the new ID using the assignment
+/// 4. Deduplicates and sorts the remapped IDs
+///
+/// # Arguments
+/// * `status_collection` - The merged statuses with related ID tracking
+/// * `collection` - The annotation collection with old-to-key mappings
+/// * `assignment` - The ID assignment with key-to-new-ID mappings
+/// * `reports` - The original reports (not used in new implementation)
+///
+/// # Returns
+/// A new `HashMap<String, JsonStatus>` with remapped related IDs, keyed by new annotation ID
+pub fn remap_related_ids(
+    status_collection: &StatusCollection,
+    collection: &AnnotationCollection,
+    assignment: &IdAssignment,
+    _reports: &[JsonReport],
+) -> HashMap<String, super::schema::JsonStatus> {
+    let mut remapped_statuses = HashMap::new();
+    
+    for (key, status) in &status_collection.status_by_key {
+        // Get the new ID for this annotation
+        let new_id = match assignment.key_to_new_id.get(key) {
+            Some(id) => *id,
+            None => continue, // Skip if key not found (shouldn't happen)
+        };
+        
+        let mut new_status = status.clone();
+        
+        // Remap related IDs if we have tracking data
+        if let Some(related_with_context) = status_collection.related_ids_by_key.get(key) {
+            let mut remapped_related = Vec::new();
+            
+            // For each (report_index, old_related_id) pair
+            for &(report_index, old_related_id) in related_with_context {
+                // Look up the annotation key for this old ID
+                if let Some(related_key) = collection.old_to_key.get(&(report_index, old_related_id)) {
+                    // Map the key to the new ID
+                    if let Some(&new_related_id) = assignment.key_to_new_id.get(related_key) {
+                        remapped_related.push(new_related_id);
+                    }
+                }
+            }
+            
+            // Deduplicate and sort the remapped IDs
+            if !remapped_related.is_empty() {
+                remapped_related.sort_unstable();
+                remapped_related.dedup();
+                new_status.related = Some(remapped_related);
+            } else {
+                new_status.related = None;
+            }
+        }
+        
+        // Store the status with the new ID as the key
+        remapped_statuses.insert(new_id.to_string(), new_status);
+    }
+    
+    remapped_statuses
 }
 
 #[cfg(test)]
@@ -1720,21 +1833,25 @@ mod tests {
         let collection = collect_annotations(&[report1.clone(), report2.clone()]);
         let status_collection = merge_statuses(&[report1, report2], &collection);
         
-        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        // Related IDs should be tracked separately with report context
+        let related_with_context = status_collection.related_ids_by_key.get(&key).unwrap();
+        assert_eq!(related_with_context.len(), 5);
         
-        // Related IDs should be unioned (not deduplicated yet)
-        let related = merged_status.related.as_ref().unwrap();
-        assert_eq!(related.len(), 5);
-        assert!(related.contains(&1));
-        assert!(related.contains(&2));
-        assert!(related.contains(&3));
-        assert!(related.contains(&4));
-        assert!(related.contains(&5));
+        // Verify the report context is preserved
+        assert!(related_with_context.contains(&(0, 1)));
+        assert!(related_with_context.contains(&(0, 2)));
+        assert!(related_with_context.contains(&(0, 3)));
+        assert!(related_with_context.contains(&(1, 4)));
+        assert!(related_with_context.contains(&(1, 5)));
+        
+        // The status itself should not have related IDs (they're tracked separately)
+        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        assert!(merged_status.related.is_none());
     }
 
     #[test]
     fn test_merge_statuses_same_key_preserves_duplicate_related_ids() {
-        // Test that duplicate related IDs are preserved (deduplication happens later)
+        // Test that duplicate related IDs are preserved with report context (deduplication happens later)
         let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
         let key = AnnotationKey::from(&anno);
         
@@ -1777,12 +1894,17 @@ mod tests {
         let collection = collect_annotations(&[report1.clone(), report2.clone()]);
         let status_collection = merge_statuses(&[report1, report2], &collection);
         
-        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        // Should have 4 entries with report context (including duplicate 2)
+        let related_with_context = status_collection.related_ids_by_key.get(&key).unwrap();
+        assert_eq!(related_with_context.len(), 4);
+        assert!(related_with_context.contains(&(0, 1)));
+        assert!(related_with_context.contains(&(0, 2)));
+        assert!(related_with_context.contains(&(1, 2))); // Duplicate 2 from report 2
+        assert!(related_with_context.contains(&(1, 3)));
         
-        // Should have 4 entries (including duplicate 2)
-        let related = merged_status.related.as_ref().unwrap();
-        assert_eq!(related.len(), 4);
-        assert_eq!(related, &vec![1, 2, 2, 3]);
+        // The status itself should not have related IDs
+        let merged_status = status_collection.status_by_key.get(&key).unwrap();
+        assert!(merged_status.related.is_none());
     }
 
     #[test]
@@ -2227,12 +2349,19 @@ mod tests {
         let collection = collect_annotations(&[report.clone()]);
         let status_collection = merge_statuses(&[report], &collection);
         
-        // Each key should have its own related IDs
+        // Each key should have its own related IDs tracked separately
+        let related1 = status_collection.related_ids_by_key.get(&key1).unwrap();
+        assert_eq!(related1, &vec![(0, 1), (0, 2)]);
+        
+        let related2 = status_collection.related_ids_by_key.get(&key2).unwrap();
+        assert_eq!(related2, &vec![(0, 3), (0, 4)]);
+        
+        // The statuses themselves should not have related IDs
         let status1 = status_collection.status_by_key.get(&key1).unwrap();
-        assert_eq!(status1.related.as_ref().unwrap(), &vec![1, 2]);
+        assert!(status1.related.is_none());
         
         let status2 = status_collection.status_by_key.get(&key2).unwrap();
-        assert_eq!(status2.related.as_ref().unwrap(), &vec![3, 4]);
+        assert!(status2.related.is_none());
     }
 
     #[test]
@@ -2307,6 +2436,1305 @@ mod tests {
         // 0 + 1 = 1, 0 + 2 = 2
         assert_eq!(merged_status.spec, Some(1));
         assert_eq!(merged_status.incomplete, Some(2));
+    }
+
+    // Related ID remapping tests
+
+    #[test]
+    fn test_remap_related_ids_empty_statuses() {
+        let reports = vec![];
+        let collection = AnnotationCollection::new();
+        let assignment = IdAssignment::new();
+        let status_collection = StatusCollection::new();
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &reports);
+        
+        assert_eq!(remapped.len(), 0);
+    }
+
+    #[test]
+    fn test_remap_related_ids_no_related_ids() {
+        // Test status without related IDs
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
+        
+        assert_eq!(remapped.len(), 1);
+        
+        let status = remapped.get("0").unwrap();
+        assert!(status.related.is_none());
+    }
+
+    #[test]
+    fn test_remap_related_ids_single_report_simple() {
+        // Test remapping within a single report
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        
+        // anno1 (old ID 0) relates to anno2 (old ID 1) and anno3 (old ID 2)
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1, 2]),
+        ));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2, anno3],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
+        
+        // anno1 (src/a.rs) should get new ID 0
+        // anno2 (src/b.rs) should get new ID 1
+        // anno3 (src/c.rs) should get new ID 2
+        // So related IDs should be [1, 2]
+        
+        let status = remapped.get("0").unwrap();
+        let related = status.related.as_ref().unwrap();
+        assert_eq!(related, &vec![1, 2]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_single_report_reordered() {
+        // Test that remapping works correctly when annotations are reordered
+        let anno1 = create_test_annotation("src/z.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/m.rs", "spec1", Some("s1"), Some(30));
+        
+        // anno1 (old ID 0, src/z.rs) relates to anno2 (old ID 1, src/a.rs) and anno3 (old ID 2, src/m.rs)
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1, 2]),
+        ));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2, anno3],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
+        
+        // After sorting:
+        // anno2 (src/a.rs) gets new ID 0
+        // anno3 (src/m.rs) gets new ID 1
+        // anno1 (src/z.rs) gets new ID 2
+        
+        // anno1's status should now be at key "2" and relate to [0, 1]
+        let status = remapped.get("2").unwrap();
+        let related = status.related.as_ref().unwrap();
+        assert_eq!(related, &vec![0, 1]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_cross_report() {
+        // Test remapping when related IDs span multiple reports
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        
+        // Report 1: anno1 and anno2, anno1 relates to anno2 (local ID 1)
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // anno2 in report1 (local ID 1)
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: anno2 and anno3, anno2 relates to anno3 (local ID 1)
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // anno3 in report2 (local ID 1)
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno2, anno3],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2]);
+        
+        // After sorting:
+        // anno1 (src/a.rs) gets new ID 0
+        // anno2 (src/b.rs) gets new ID 1 (deduplicated)
+        // anno3 (src/c.rs) gets new ID 2
+        
+        // anno1's status should relate to anno2 (new ID 1)
+        let status1 = remapped.get("0").unwrap();
+        assert_eq!(status1.related.as_ref().unwrap(), &vec![1]);
+        
+        // anno2's merged status should relate to anno3 (new ID 2)
+        let status2 = remapped.get("1").unwrap();
+        assert_eq!(status2.related.as_ref().unwrap(), &vec![2]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_deduplication() {
+        // Test that duplicate related IDs are deduplicated after remapping
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        // Report 1: anno1 relates to anno2
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // anno2 in report1
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1.clone(), anno2.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: same anno1 relates to same anno2 (duplicate)
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // anno2 in report2
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2]);
+        
+        // After merging, anno1 should have related IDs [1, 1] which should be deduplicated to [1]
+        let status = remapped.get("0").unwrap();
+        let related = status.related.as_ref().unwrap();
+        assert_eq!(related, &vec![1]); // Deduplicated
+    }
+
+    #[test]
+    fn test_remap_related_ids_multiple_related_cross_report() {
+        // Test remapping multiple related IDs that span different reports
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        let anno4 = create_test_annotation("src/d.rs", "spec1", Some("s1"), Some(40));
+        
+        // Report 1: anno1 and anno2
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1, 0, 1]), // Relates to anno2 (ID 1) and itself (ID 0), with duplicate
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: anno3 and anno4
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // Relates to anno4 (ID 1 in report2)
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno3, anno4],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2]);
+        
+        // After sorting:
+        // anno1 (src/a.rs) gets new ID 0
+        // anno2 (src/b.rs) gets new ID 1
+        // anno3 (src/c.rs) gets new ID 2
+        // anno4 (src/d.rs) gets new ID 3
+        
+        // anno1's status should relate to [0, 1] (deduplicated)
+        let status1 = remapped.get("0").unwrap();
+        assert_eq!(status1.related.as_ref().unwrap(), &vec![0, 1]);
+        
+        // anno3's status should relate to [3]
+        let status2 = remapped.get("2").unwrap();
+        assert_eq!(status2.related.as_ref().unwrap(), &vec![3]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_sorted_output() {
+        // Test that remapped related IDs are sorted
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        let anno4 = create_test_annotation("src/d.rs", "spec1", Some("s1"), Some(40));
+        
+        // anno1 relates to anno4, anno3, anno2 (in that order)
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![3, 2, 1]), // Unsorted old IDs
+        ));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2, anno3, anno4],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
+        
+        // Related IDs should be sorted
+        let status = remapped.get("0").unwrap();
+        let related = status.related.as_ref().unwrap();
+        assert_eq!(related, &vec![1, 2, 3]); // Sorted
+    }
+
+    #[test]
+    fn test_remap_related_ids_preserves_status_counts() {
+        // Test that remapping doesn't affect status counts
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), crate::merge::schema::JsonStatus {
+            spec: Some(1),
+            incomplete: Some(2),
+            citation: Some(3),
+            implication: Some(4),
+            test: Some(5),
+            exception: Some(6),
+            todo: Some(7),
+            related: Some(vec![1]),
+        });
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
+        
+        let status = remapped.get("0").unwrap();
+        
+        // All counts should be preserved
+        assert_eq!(status.spec, Some(1));
+        assert_eq!(status.incomplete, Some(2));
+        assert_eq!(status.citation, Some(3));
+        assert_eq!(status.implication, Some(4));
+        assert_eq!(status.test, Some(5));
+        assert_eq!(status.exception, Some(6));
+        assert_eq!(status.todo, Some(7));
+    }
+
+    #[test]
+    fn test_remap_related_ids_empty_related_array() {
+        // Test that empty related arrays are handled correctly
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![]), // Empty related array
+        ));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
+        
+        let status = remapped.get("0").unwrap();
+        // Empty related array should become None
+        assert!(status.related.is_none());
+    }
+
+    #[test]
+    fn test_remap_related_ids_invalid_old_id() {
+        // Test that invalid old related IDs are skipped
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1, 99, 100]), // 99 and 100 don't exist
+        ));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
+        
+        let status = remapped.get("0").unwrap();
+        let related = status.related.as_ref().unwrap();
+        // Should only have the valid ID (1 -> new ID 1)
+        assert_eq!(related, &vec![1]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_self_reference() {
+        // Test that an annotation can reference itself
+        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![0]), // Self-reference
+        ));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
+        
+        let status = remapped.get("0").unwrap();
+        let related = status.related.as_ref().unwrap();
+        assert_eq!(related, &vec![0]); // Still references itself
+    }
+
+    #[test]
+    fn test_remap_related_ids_complex_scenario() {
+        // Complex test with multiple reports, overlapping annotations, and cross-references
+        let shared_anno = create_test_annotation("src/shared.rs", "spec1", Some("s1"), Some(10));
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(20));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(30));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(40));
+        
+        // Report 1: shared_anno (ID 0) and anno1 (ID 1)
+        // shared_anno relates to anno1 (local ID 1)
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // Relates to anno1 (local ID 1)
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![shared_anno.clone(), anno1],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: anno2 (ID 0), shared_anno (ID 1), anno3 (ID 2)
+        // shared_anno relates to anno2 (local ID 0) and anno3 (local ID 2)
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("1".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![0, 2]), // Relates to anno2 and anno3
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno2, shared_anno, anno3],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2]);
+        
+        // After sorting:
+        // anno1 (src/a.rs) gets new ID 0
+        // anno2 (src/b.rs) gets new ID 1
+        // anno3 (src/c.rs) gets new ID 2
+        // shared_anno (src/shared.rs) gets new ID 3
+        
+        // shared_anno's merged status should relate to [0, 1, 2] (anno1, anno2, anno3)
+        let status = remapped.get("3").unwrap();
+        let related = status.related.as_ref().unwrap();
+        assert_eq!(related, &vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_all_statuses_have_new_ids() {
+        // Test that all statuses are keyed by new IDs
+        let anno1 = create_test_annotation("src/z.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/m.rs", "spec1", Some("s1"), Some(30));
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
+        statuses.insert("1".to_string(), create_test_status(Some(2), None, None, None, None));
+        statuses.insert("2".to_string(), create_test_status(Some(3), None, None, None, None));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2, anno3],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
+        
+        // After sorting: a.rs (0), m.rs (1), z.rs (2)
+        // Old IDs: z.rs (0), a.rs (1), m.rs (2)
+        // New IDs: a.rs (0), m.rs (1), z.rs (2)
+        
+        assert_eq!(remapped.len(), 3);
+        assert!(remapped.contains_key("0")); // a.rs
+        assert!(remapped.contains_key("1")); // m.rs
+        assert!(remapped.contains_key("2")); // z.rs
+        
+        // Verify the status values match
+        assert_eq!(remapped.get("0").unwrap().spec, Some(2)); // Was old ID 1
+        assert_eq!(remapped.get("1").unwrap().spec, Some(3)); // Was old ID 2
+        assert_eq!(remapped.get("2").unwrap().spec, Some(1)); // Was old ID 0
+    }
+
+    #[test]
+    fn test_remap_related_ids_maintains_referential_integrity() {
+        // Test that all related IDs in the output are valid annotation IDs
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        
+        let mut statuses = HashMap::new();
+        statuses.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1, 2]),
+        ));
+        statuses.insert("1".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![0, 2]),
+        ));
+        
+        let report = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2, anno3],
+            statuses,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
+        
+        // Verify all related IDs are valid
+        let total_annotations = assignment.merged_annotations.len();
+        
+        for (_, status) in &remapped {
+            if let Some(related) = &status.related {
+                for &related_id in related {
+                    assert!(related_id < total_annotations, 
+                        "Related ID {} is out of bounds (total annotations: {})", 
+                        related_id, total_annotations);
+                }
+            }
+        }
+    }
+
+    // Cross-report related reference tests
+
+    #[test]
+    fn test_remap_related_ids_three_reports_cross_references() {
+        // Test complex cross-report references with three reports
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        
+        // Report 1: anno1 and anno2, anno1 relates to anno2 (local ID 1)
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // anno2 in report1 (local ID 1)
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1.clone(), anno2.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: anno2 and anno3, anno2 relates to anno3 (local ID 1)
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // anno3 in report2 (local ID 1)
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno2.clone(), anno3.clone()],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        // Report 3: anno3 and anno1, anno3 relates to anno1 (local ID 1)
+        let mut statuses3 = HashMap::new();
+        statuses3.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // anno1 in report3 (local ID 1)
+        ));
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno3, anno1.clone()],
+            statuses: statuses3,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone(), report3.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone(), report3.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2, report3]);
+        
+        // After sorting:
+        // anno1 (src/a.rs) gets new ID 0
+        // anno2 (src/b.rs) gets new ID 1
+        // anno3 (src/c.rs) gets new ID 2
+        
+        // Verify circular references are maintained
+        assert_eq!(remapped.get("0").unwrap().related.as_ref().unwrap(), &vec![1]); // anno1 -> anno2
+        assert_eq!(remapped.get("1").unwrap().related.as_ref().unwrap(), &vec![2]); // anno2 -> anno3
+        assert_eq!(remapped.get("2").unwrap().related.as_ref().unwrap(), &vec![0]); // anno3 -> anno1
+    }
+
+    #[test]
+    fn test_remap_related_ids_bidirectional_references() {
+        // Test bidirectional references between reports
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        
+        // Report 1: anno1 and anno2, anno1 relates to anno2 (local ID 1)
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // anno2 in report1 (local ID 1)
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1.clone(), anno2.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: anno2 and anno1, anno2 relates to anno1 (local ID 1)
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // anno1 in report2 (local ID 1)
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno2, anno1],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2]);
+        
+        // After sorting:
+        // anno1 (src/a.rs) gets new ID 0
+        // anno2 (src/b.rs) gets new ID 1
+        
+        // Verify bidirectional references
+        assert_eq!(remapped.get("0").unwrap().related.as_ref().unwrap(), &vec![1]); // anno1 -> anno2
+        assert_eq!(remapped.get("1").unwrap().related.as_ref().unwrap(), &vec![0]); // anno2 -> anno1
+    }
+
+    #[test]
+    fn test_remap_related_ids_many_to_one_references() {
+        // Test multiple annotations referencing the same annotation across reports
+        let target_anno = create_test_annotation("src/target.rs", "spec1", Some("s1"), Some(10));
+        let ref1 = create_test_annotation("src/ref1.rs", "spec1", Some("s1"), Some(20));
+        let ref2 = create_test_annotation("src/ref2.rs", "spec1", Some("s1"), Some(30));
+        let ref3 = create_test_annotation("src/ref3.rs", "spec1", Some("s1"), Some(40));
+        
+        // Report 1: ref1 and target_anno
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // Relates to target_anno
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![ref1, target_anno.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: ref2 and target_anno
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // Relates to target_anno
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![ref2, target_anno.clone()],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        // Report 3: ref3 and target_anno
+        let mut statuses3 = HashMap::new();
+        statuses3.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // Relates to target_anno
+        ));
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![ref3, target_anno],
+            statuses: statuses3,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone(), report3.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone(), report3.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2, report3]);
+        
+        // After sorting:
+        // ref1 (src/ref1.rs) gets new ID 0
+        // ref2 (src/ref2.rs) gets new ID 1
+        // ref3 (src/ref3.rs) gets new ID 2
+        // target_anno (src/target.rs) gets new ID 3
+        
+        // All three refs should point to target_anno (new ID 3)
+        assert_eq!(remapped.get("0").unwrap().related.as_ref().unwrap(), &vec![3]);
+        assert_eq!(remapped.get("1").unwrap().related.as_ref().unwrap(), &vec![3]);
+        assert_eq!(remapped.get("2").unwrap().related.as_ref().unwrap(), &vec![3]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_one_to_many_references() {
+        // Test one annotation referencing multiple annotations across reports
+        let main_anno = create_test_annotation("src/main.rs", "spec1", Some("s1"), Some(10));
+        let dep1 = create_test_annotation("src/dep1.rs", "spec1", Some("s1"), Some(20));
+        let dep2 = create_test_annotation("src/dep2.rs", "spec1", Some("s1"), Some(30));
+        let dep3 = create_test_annotation("src/dep3.rs", "spec1", Some("s1"), Some(40));
+        
+        // Report 1: main_anno and dep1, main_anno relates to dep1 (local ID 1)
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // Relates to dep1 (local ID 1)
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![main_anno.clone(), dep1],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: dep2, main_anno, dep3; main_anno relates to dep2 (local ID 0) and dep3 (local ID 2)
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("1".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![0, 2]), // Relates to dep2 and dep3
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![dep2, main_anno, dep3],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2]);
+        
+        // After sorting:
+        // dep1 (src/dep1.rs) gets new ID 0
+        // dep2 (src/dep2.rs) gets new ID 1
+        // dep3 (src/dep3.rs) gets new ID 2
+        // main_anno (src/main.rs) gets new ID 3
+        
+        // main_anno should relate to [0, 1, 2] (all deps)
+        let status = remapped.get("3").unwrap();
+        let related = status.related.as_ref().unwrap();
+        assert_eq!(related, &vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_overlapping_annotations_with_different_relations() {
+        // Test when the same annotation appears in multiple reports but with different related IDs
+        let shared_anno = create_test_annotation("src/shared.rs", "spec1", Some("s1"), Some(10));
+        let dep1 = create_test_annotation("src/dep1.rs", "spec1", Some("s1"), Some(20));
+        let dep2 = create_test_annotation("src/dep2.rs", "spec1", Some("s1"), Some(30));
+        
+        // Report 1: shared_anno relates to dep1
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // dep1
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![shared_anno.clone(), dep1],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: shared_anno relates to dep2
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // dep2
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![shared_anno, dep2],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2]);
+        
+        // After sorting:
+        // dep1 (src/dep1.rs) gets new ID 0
+        // dep2 (src/dep2.rs) gets new ID 1
+        // shared_anno (src/shared.rs) gets new ID 2
+        
+        // shared_anno should relate to both deps [0, 1]
+        let status = remapped.get("2").unwrap();
+        let related = status.related.as_ref().unwrap();
+        assert_eq!(related, &vec![0, 1]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_chain_across_reports() {
+        // Test a chain of references: A -> B -> C -> D across different reports
+        let anno_a = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno_b = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno_c = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        let anno_d = create_test_annotation("src/d.rs", "spec1", Some("s1"), Some(40));
+        
+        // Report 1: A and B, A -> B (local ID 1)
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // B (local ID 1)
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno_a, anno_b.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: B and C, B -> C (local ID 1)
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // C (local ID 1)
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno_b, anno_c.clone()],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        // Report 3: C and D, C -> D (local ID 1)
+        let mut statuses3 = HashMap::new();
+        statuses3.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // D (local ID 1)
+        ));
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno_c, anno_d],
+            statuses: statuses3,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone(), report3.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone(), report3.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2, report3]);
+        
+        // After sorting: a.rs (0), b.rs (1), c.rs (2), d.rs (3)
+        
+        // Verify the chain
+        assert_eq!(remapped.get("0").unwrap().related.as_ref().unwrap(), &vec![1]); // A -> B
+        assert_eq!(remapped.get("1").unwrap().related.as_ref().unwrap(), &vec![2]); // B -> C
+        assert_eq!(remapped.get("2").unwrap().related.as_ref().unwrap(), &vec![3]); // C -> D
+    }
+
+    #[test]
+    fn test_remap_related_ids_star_topology() {
+        // Test star topology: one central annotation referenced by many others across reports
+        let center = create_test_annotation("src/center.rs", "spec1", Some("s1"), Some(10));
+        let spoke1 = create_test_annotation("src/spoke1.rs", "spec1", Some("s1"), Some(20));
+        let spoke2 = create_test_annotation("src/spoke2.rs", "spec1", Some("s1"), Some(30));
+        let spoke3 = create_test_annotation("src/spoke3.rs", "spec1", Some("s1"), Some(40));
+        
+        // Report 1: spoke1 and center, spoke1 -> center (local ID 1)
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // center (local ID 1)
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![spoke1, center.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: center and spoke2, spoke2 -> center (local ID 0)
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("1".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![0]), // center (local ID 0)
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![center.clone(), spoke2],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        // Report 3: spoke3 and center, spoke3 -> center (local ID 1)
+        let mut statuses3 = HashMap::new();
+        statuses3.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // center (local ID 1)
+        ));
+        
+        let report3 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![spoke3, center],
+            statuses: statuses3,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone(), report3.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone(), report3.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2, report3]);
+        
+        // After sorting:
+        // center (src/center.rs) gets new ID 0
+        // spoke1 (src/spoke1.rs) gets new ID 1
+        // spoke2 (src/spoke2.rs) gets new ID 2
+        // spoke3 (src/spoke3.rs) gets new ID 3
+        
+        // All spokes should point to center (ID 0)
+        assert_eq!(remapped.get("1").unwrap().related.as_ref().unwrap(), &vec![0]);
+        assert_eq!(remapped.get("2").unwrap().related.as_ref().unwrap(), &vec![0]);
+        assert_eq!(remapped.get("3").unwrap().related.as_ref().unwrap(), &vec![0]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_mixed_local_and_cross_report() {
+        // Test mix of local (within report) and cross-report references
+        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
+        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
+        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
+        let anno4 = create_test_annotation("src/d.rs", "spec1", Some("s1"), Some(40));
+        
+        // Report 1: anno1, anno2, anno3; anno1 relates to anno2 (local ID 1) and anno3 (local ID 2)
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1, 2]), // anno2 and anno3 (both local)
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno1, anno2, anno3.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: anno3 and anno4, anno3 relates to anno4 (local ID 1)
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // anno4 (local ID 1)
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![anno3, anno4],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2]);
+        
+        // After sorting: a.rs (0), b.rs (1), c.rs (2), d.rs (3)
+        
+        // anno1 should relate to [1, 2] (anno2 and anno3)
+        assert_eq!(remapped.get("0").unwrap().related.as_ref().unwrap(), &vec![1, 2]);
+        
+        // anno3 should relate to [3] (anno4)
+        assert_eq!(remapped.get("2").unwrap().related.as_ref().unwrap(), &vec![3]);
+    }
+
+    #[test]
+    fn test_remap_related_ids_all_reports_reference_same_annotation() {
+        // Test when all reports have annotations that reference the same target
+        let target = create_test_annotation("src/target.rs", "spec1", Some("s1"), Some(10));
+        let ref1 = create_test_annotation("src/ref1.rs", "spec1", Some("s1"), Some(20));
+        let ref2 = create_test_annotation("src/ref2.rs", "spec1", Some("s1"), Some(30));
+        
+        // Report 1: ref1 and target, ref1 -> target
+        let mut statuses1 = HashMap::new();
+        statuses1.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // target
+        ));
+        
+        let report1 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![ref1, target.clone()],
+            statuses: statuses1,
+            refs: vec![],
+        };
+        
+        // Report 2: ref2 and target, ref2 -> target
+        let mut statuses2 = HashMap::new();
+        statuses2.insert("0".to_string(), create_test_status(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(vec![1]), // target
+        ));
+        
+        let report2 = JsonReport {
+            blob_link: None,
+            issue_link: None,
+            specifications: HashMap::new(),
+            annotations: vec![ref2, target],
+            statuses: statuses2,
+            refs: vec![],
+        };
+        
+        let collection = collect_annotations(&[report1.clone(), report2.clone()]);
+        let assignment = assign_new_ids(&collection);
+        let status_collection = merge_statuses(&[report1.clone(), report2.clone()], &collection);
+        
+        let remapped = super::remap_related_ids(&status_collection, &collection, &assignment, &[report1, report2]);
+        
+        // After sorting:
+        // ref1 (src/ref1.rs) gets new ID 0
+        // ref2 (src/ref2.rs) gets new ID 1
+        // target (src/target.rs) gets new ID 2
+        
+        // Both refs should point to target (ID 2)
+        assert_eq!(remapped.get("0").unwrap().related.as_ref().unwrap(), &vec![2]);
+        assert_eq!(remapped.get("1").unwrap().related.as_ref().unwrap(), &vec![2]);
     }
 
 }

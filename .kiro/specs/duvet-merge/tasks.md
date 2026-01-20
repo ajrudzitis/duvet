@@ -60,12 +60,12 @@
   - [x] 7.4 Add unit tests for status merging with same key
   - [x] 7.5 Add unit tests for status merging with different keys
 
-- [ ] 8. Implement related ID remapping
-  - [ ] 8.1 Implement function to remap related annotation IDs
-  - [ ] 8.2 Handle related IDs that span multiple reports
-  - [ ] 8.3 Deduplicate remapped related IDs
-  - [ ] 8.4 Add unit tests for related ID remapping
-  - [ ] 8.5 Add unit tests for cross-report related references
+- [x] 8. Implement related ID remapping
+  - [x] 8.1 Implement function to remap related annotation IDs
+  - [x] 8.2 Handle related IDs that span multiple reports
+  - [x] 8.3 Deduplicate remapped related IDs
+  - [x] 8.4 Add unit tests for related ID remapping
+  - [x] 8.5 Add unit tests for cross-report related references
 
 - [ ] 9. Implement final status structure generation
   - [ ] 9.1 Convert status_by_key to status_by_new_id
