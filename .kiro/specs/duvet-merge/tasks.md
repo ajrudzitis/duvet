@@ -67,10 +67,10 @@
   - [x] 8.4 Add unit tests for related ID remapping
   - [x] 8.5 Add unit tests for cross-report related references
 
-- [ ] 9. Implement final status structure generation
-  - [ ] 9.1 Convert status_by_key to status_by_new_id
-  - [ ] 9.2 Format status keys as strings for JSON output
-  - [ ] 9.3 Add unit tests for final status generation
+- [x] 9. Implement final status structure generation
+  - [x] 9.1 Convert status_by_key to status_by_new_id
+  - [x] 9.2 Format status keys as strings for JSON output
+  - [x] 9.3 Add unit tests for final status generation
 
 ## Phase 4: Specification and Link Merging
 
