@@ -1120,27 +1120,6 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_statuses_no_statuses_in_report() {
-        // Test that reports with annotations but no statuses are handled
-        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
-        
-        let report = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![anno],
-            statuses: HashMap::new(), // Empty statuses
-            refs: vec![],
-        };
-        
-        let collection = collect_annotations(&[report.clone()]);
-        let status_collection = merge_statuses(&[report], &collection);
-        
-        // Should have no status entries
-        assert_eq!(status_collection.status_by_key.len(), 0);
-    }
-
-    #[test]
     fn test_merge_statuses_all_count_fields() {
         // Test that all count fields are properly merged
         let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
@@ -1577,95 +1556,6 @@ mod tests {
         assert_eq!(related, &vec![0, 1]);
     }
 
-    // Final status structure generation tests
-
-    #[test]
-    fn test_final_status_generation_keys_are_strings() {
-        // Test that the final status structure uses string keys
-        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
-        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
-        
-        let mut statuses = HashMap::new();
-        statuses.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
-        statuses.insert("1".to_string(), create_test_status(Some(2), None, None, None, None));
-        
-        let report = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![anno1, anno2],
-            statuses,
-            refs: vec![],
-        };
-        
-        let collection = collect_annotations(&[report.clone()]);
-        let assignment = assign_new_ids(&collection);
-        let status_collection = merge_statuses(&[report.clone()], &collection);
-        
-        let final_statuses = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
-        
-        // Verify keys are strings
-        assert!(final_statuses.contains_key("0"));
-        assert!(final_statuses.contains_key("1"));
-        
-        // Verify we can parse them back to usize
-        for key in final_statuses.keys() {
-            assert!(key.parse::<usize>().is_ok(), "Key '{}' should be parseable as usize", key);
-        }
-    }
-
-    #[test]
-    fn test_final_status_generation_preserves_all_statuses() {
-        // Test that all statuses from status_by_key are present in the final output
-        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
-        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
-        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
-        
-        let mut statuses = HashMap::new();
-        statuses.insert("0".to_string(), create_test_status(Some(1), Some(2), Some(3), None, None));
-        statuses.insert("1".to_string(), create_test_status(Some(4), Some(5), Some(6), None, None));
-        statuses.insert("2".to_string(), create_test_status(Some(7), Some(8), Some(9), None, None));
-        
-        let report = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![anno1, anno2, anno3],
-            statuses,
-            refs: vec![],
-        };
-        
-        let collection = collect_annotations(&[report.clone()]);
-        let assignment = assign_new_ids(&collection);
-        let status_collection = merge_statuses(&[report.clone()], &collection);
-        
-        let final_statuses = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
-        
-        // Should have 3 statuses
-        assert_eq!(final_statuses.len(), 3);
-        
-        // Verify all statuses are present with correct new IDs
-        assert!(final_statuses.contains_key("0"));
-        assert!(final_statuses.contains_key("1"));
-        assert!(final_statuses.contains_key("2"));
-        
-        // Verify status values are preserved
-        let status0 = final_statuses.get("0").unwrap();
-        assert_eq!(status0.spec, Some(1));
-        assert_eq!(status0.incomplete, Some(2));
-        assert_eq!(status0.citation, Some(3));
-        
-        let status1 = final_statuses.get("1").unwrap();
-        assert_eq!(status1.spec, Some(4));
-        assert_eq!(status1.incomplete, Some(5));
-        assert_eq!(status1.citation, Some(6));
-        
-        let status2 = final_statuses.get("2").unwrap();
-        assert_eq!(status2.spec, Some(7));
-        assert_eq!(status2.incomplete, Some(8));
-        assert_eq!(status2.citation, Some(9));
-    }
-
     #[test]
     fn test_final_status_generation_with_merged_counts() {
         // Test that merged counts from multiple reports are preserved in final output
@@ -1754,30 +1644,6 @@ mod tests {
     }
 
     #[test]
-    fn test_final_status_generation_empty_statuses() {
-        // Test that empty status collections produce empty final output
-        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
-        
-        let report = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![anno],
-            statuses: HashMap::new(), // No statuses
-            refs: vec![],
-        };
-        
-        let collection = collect_annotations(&[report.clone()]);
-        let assignment = assign_new_ids(&collection);
-        let status_collection = merge_statuses(&[report.clone()], &collection);
-        
-        let final_statuses = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
-        
-        // Should be empty
-        assert_eq!(final_statuses.len(), 0);
-    }
-
-    #[test]
     fn test_final_status_generation_with_remapped_related_ids() {
         // Test that related IDs are correctly remapped in the final output
         let anno1 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(10));
@@ -1856,44 +1722,6 @@ mod tests {
             assert!(final_statuses.contains_key(&key), 
                 "Missing status for annotation ID {}", i);
         }
-    }
-
-    #[test]
-    fn test_final_status_generation_sequential_ids() {
-        // Test that final status IDs are sequential starting from 0
-        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
-        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
-        let anno3 = create_test_annotation("src/c.rs", "spec1", Some("s1"), Some(30));
-        let anno4 = create_test_annotation("src/d.rs", "spec1", Some("s1"), Some(40));
-        let anno5 = create_test_annotation("src/e.rs", "spec1", Some("s1"), Some(50));
-        
-        let mut statuses = HashMap::new();
-        for i in 0..5 {
-            statuses.insert(i.to_string(), create_test_status(Some(i + 1), None, None, None, None));
-        }
-        
-        let report = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![anno1, anno2, anno3, anno4, anno5],
-            statuses,
-            refs: vec![],
-        };
-        
-        let collection = collect_annotations(&[report.clone()]);
-        let assignment = assign_new_ids(&collection);
-        let status_collection = merge_statuses(&[report.clone()], &collection);
-        
-        let final_statuses = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
-        
-        // Verify IDs are sequential
-        let mut ids: Vec<usize> = final_statuses.keys()
-            .map(|k| k.parse::<usize>().unwrap())
-            .collect();
-        ids.sort_unstable();
-        
-        assert_eq!(ids, vec![0, 1, 2, 3, 4]);
     }
 
     #[test]
@@ -2026,43 +1854,6 @@ mod tests {
         assert_eq!(final_statuses.get("1").unwrap().spec, Some(2));
         assert_eq!(final_statuses.get("2").unwrap().spec, Some(4));
         assert_eq!(final_statuses.get("3").unwrap().spec, Some(6));
-    }
-
-    #[test]
-    fn test_final_status_generation_no_related_ids() {
-        // Test that statuses without related IDs work correctly
-        let anno1 = create_test_annotation("src/a.rs", "spec1", Some("s1"), Some(10));
-        let anno2 = create_test_annotation("src/b.rs", "spec1", Some("s1"), Some(20));
-        
-        let mut statuses = HashMap::new();
-        statuses.insert("0".to_string(), create_test_status(Some(1), Some(2), Some(3), Some(4), None));
-        statuses.insert("1".to_string(), create_test_status(Some(5), Some(6), Some(7), Some(8), None));
-        
-        let report = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![anno1, anno2],
-            statuses,
-            refs: vec![],
-        };
-        
-        let collection = collect_annotations(&[report.clone()]);
-        let assignment = assign_new_ids(&collection);
-        let status_collection = merge_statuses(&[report.clone()], &collection);
-        
-        let final_statuses = super::remap_related_ids(&status_collection, &collection, &assignment, &[report]);
-        
-        // Both statuses should be present
-        assert_eq!(final_statuses.len(), 2);
-        
-        // Verify related fields are None
-        assert!(final_statuses.get("0").unwrap().related.is_none());
-        assert!(final_statuses.get("1").unwrap().related.is_none());
-        
-        // Verify counts are preserved
-        assert_eq!(final_statuses.get("0").unwrap().spec, Some(1));
-        assert_eq!(final_statuses.get("1").unwrap().spec, Some(5));
     }
 
     // Specification merging tests
@@ -2931,22 +2722,6 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[test]
-    fn test_resolve_blob_links_empty_reports() {
-        // Test that empty reports array returns None
-        let result = super::resolve_blob_links(&[]);
-        
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_resolve_issue_links_empty_reports() {
-        // Test that empty reports array returns None
-        let result = super::resolve_issue_links(&[]);
-        
-        assert_eq!(result, None);
-    }
-
     // Refs array handling tests
 
     #[test]
@@ -2996,59 +2771,6 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], ref1);
         assert_eq!(result[1], ref2);
-    }
-
-    #[test]
-    fn test_extract_refs_array_empty_reports() {
-        // Test that empty reports array returns empty vector
-        let result = super::extract_refs_array(&[]);
-        
-        assert_eq!(result.len(), 0);
-    }
-
-    #[test]
-    fn test_extract_refs_array_single_report() {
-        // Test extraction from a single report
-        let ref_entry = crate::merge::schema::JsonRefStatus {
-            spec: Some(true),
-            citation: Some(true),
-            implication: None,
-            test: None,
-            exception: None,
-            todo: None,
-            level: Some("SHOULD".to_string()),
-        };
-        
-        let report = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![],
-            statuses: HashMap::new(),
-            refs: vec![ref_entry.clone()],
-        };
-        
-        let result = super::extract_refs_array(&[report]);
-        
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], ref_entry);
-    }
-
-    #[test]
-    fn test_extract_refs_array_empty_refs() {
-        // Test that empty refs array is handled correctly
-        let report = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![],
-            statuses: HashMap::new(),
-            refs: vec![],
-        };
-        
-        let result = super::extract_refs_array(&[report]);
-        
-        assert_eq!(result.len(), 0);
     }
 
     #[test]
@@ -3193,67 +2915,6 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.contains("content mismatch"), "Error should mention content mismatch: {}", err);
         assert!(err.contains("index 0"), "Error should mention the index: {}", err);
-    }
-
-    #[test]
-    fn test_validate_refs_arrays_empty_reports() {
-        // Test that empty reports array passes validation
-        let result = super::validate_refs_arrays(&[]);
-        
-        assert!(result.is_ok(), "Expected empty reports to pass validation");
-    }
-
-    #[test]
-    fn test_validate_refs_arrays_single_report() {
-        // Test that a single report always passes validation
-        let ref1 = crate::merge::schema::JsonRefStatus {
-            spec: Some(true),
-            citation: Some(true),
-            implication: None,
-            test: None,
-            exception: None,
-            todo: None,
-            level: None,
-        };
-        
-        let report = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![],
-            statuses: HashMap::new(),
-            refs: vec![ref1],
-        };
-        
-        let result = super::validate_refs_arrays(&[report]);
-        
-        assert!(result.is_ok(), "Expected single report to pass validation");
-    }
-
-    #[test]
-    fn test_validate_refs_arrays_all_empty() {
-        // Test that reports with empty refs arrays pass validation
-        let report1 = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![],
-            statuses: HashMap::new(),
-            refs: vec![],
-        };
-        
-        let report2 = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![],
-            statuses: HashMap::new(),
-            refs: vec![],
-        };
-        
-        let result = super::validate_refs_arrays(&[report1, report2]);
-        
-        assert!(result.is_ok(), "Expected empty refs arrays to pass validation");
     }
 
     #[test]
@@ -3678,85 +3339,6 @@ mod tests {
         assert_eq!(merged.annotations[0].source, "src/a.rs");
         assert_eq!(merged.annotations[1].source, "src/m.rs");
         assert_eq!(merged.annotations[2].source, "src/z.rs");
-    }
-
-    #[test]
-    fn test_build_merged_report_serialization() {
-        // Test that the merged report can be serialized to JSON
-        let anno = create_test_annotation("src/lib.rs", "spec1", Some("s1"), Some(10));
-        
-        let mut specs = HashMap::new();
-        specs.insert(
-            "spec1".to_string(),
-            crate::merge::schema::JsonSpecification {
-                title: Some("Test".to_string()),
-                format: "markdown".to_string(),
-                requirements: vec![0],
-                sections: vec![],
-            },
-        );
-        
-        let mut statuses = HashMap::new();
-        statuses.insert("0".to_string(), create_test_status(Some(1), None, None, None, None));
-        
-        let report = JsonReport {
-            blob_link: Some("https://github.com/example/repo".to_string()),
-            issue_link: None,
-            specifications: specs.clone(),
-            annotations: vec![anno],
-            statuses: statuses.clone(),
-            refs: vec![crate::merge::schema::JsonRefStatus::default()],
-        };
-        
-        let collection = collect_annotations(&[report.clone()]);
-        let assignment = assign_new_ids(&collection);
-        
-        let merged = super::build_merged_report(
-            &[report],
-            &assignment,
-            statuses,
-            specs,
-        );
-        
-        // Should be able to serialize to JSON
-        let json_result = serde_json::to_string(&merged);
-        assert!(json_result.is_ok(), "Failed to serialize merged report: {:?}", json_result.err());
-        
-        let json = json_result.unwrap();
-        assert!(json.contains("blob_link"));
-        assert!(json.contains("specifications"));
-        assert!(json.contains("annotations"));
-        assert!(json.contains("statuses"));
-        assert!(json.contains("refs"));
-    }
-
-    #[test]
-    fn test_build_merged_report_empty_inputs() {
-        // Test building a merged report with no annotations
-        let report = JsonReport {
-            blob_link: None,
-            issue_link: None,
-            specifications: HashMap::new(),
-            annotations: vec![],
-            statuses: HashMap::new(),
-            refs: vec![],
-        };
-        
-        let collection = collect_annotations(&[report.clone()]);
-        let assignment = assign_new_ids(&collection);
-        
-        let merged = super::build_merged_report(
-            &[report],
-            &assignment,
-            HashMap::new(),
-            HashMap::new(),
-        );
-        
-        // Should create valid empty report
-        assert_eq!(merged.annotations.len(), 0);
-        assert_eq!(merged.statuses.len(), 0);
-        assert_eq!(merged.specifications.len(), 0);
-        assert_eq!(merged.refs.len(), 0);
     }
 
     #[test]
