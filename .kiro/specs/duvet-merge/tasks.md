@@ -116,13 +116,13 @@
   - [x] 15.2 Document decision: reconstruct vs new generators vs JSON-only
   - [x] 15.3 Create implementation plan based on decision
 
-- [ ] 16. Implement HTML output from merged JSON
-  - [ ] 16.1 Create `write_html_output()` method in `duvet/src/merge/mod.rs`
-  - [ ] 16.2 Modify `exec()` to call `write_html_output()` when `--html` flag is provided
-  - [ ] 16.3 Remove "not yet implemented" warning for HTML
-  - [ ] 16.4 Add integration test for HTML output with 2 input files
-  - [ ] 16.5 Add integration test for HTML output with 3 input files
-  - [ ] 16.6 Manually verify HTML opens in browser and displays correctly
+- [x] 16. Implement HTML output from merged JSON
+  - [x] 16.1 Create `write_html_output()` method in `duvet/src/merge/mod.rs`
+  - [x] 16.2 Modify `exec()` to call `write_html_output()` when `--html` flag is provided
+  - [x] 16.3 Remove "not yet implemented" warning for HTML
+  - [x] 16.4 Add integration test for HTML output with 2 input files
+  - [x] 16.5 Add integration test for HTML output with 3 input files
+  - [x] 16.6 Manually verify HTML opens in browser and displays correctly
 
 - [ ]* 17. LCOV Output (DEFERRED - Future Enhancement)
   - [ ]* 17.1 Gather user requirements for LCOV with merged reports

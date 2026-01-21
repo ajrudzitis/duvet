@@ -1,0 +1,61 @@
+{
+  "blob_link": "https://github.com/example/monorepo/blob/main",
+  "issue_link": "https://github.com/example/monorepo/issues",
+  "specifications": {
+    "https://example.com/spec": {
+      "title": "Example Specification",
+      "format": "markdown",
+      "requirements": [0],
+      "sections": [
+        {
+          "id": "section-1",
+          "title": "Requirements",
+          "lines": ["Requirement 1", "Requirement 2"]
+        }
+      ]
+    },
+    "https://example.com/spec2": {
+      "title": "Second Specification",
+      "format": "markdown",
+      "requirements": [1],
+      "sections": [
+        {
+          "id": "section-1",
+          "title": "Additional Requirements",
+          "lines": ["Requirement A"]
+        }
+      ]
+    }
+  },
+  "annotations": [
+    {
+      "source": "pkg3/src/feature.rs",
+      "target_path": "https://example.com/spec",
+      "target_section": "section-1",
+      "line": 25,
+      "type": "EXCEPTION",
+      "comment": "Exception for this package"
+    },
+    {
+      "source": "pkg3/src/other.rs",
+      "target_path": "https://example.com/spec2",
+      "target_section": "section-1",
+      "line": 30,
+      "type": "SPEC",
+      "level": "SHOULD"
+    }
+  ],
+  "statuses": {
+    "0": {
+      "exception": 1
+    },
+    "1": {
+      "spec": 1,
+      "incomplete": 1
+    }
+  },
+  "refs": [
+    {},
+    {"spec": true, "level": "MUST"}
+  ]
+}

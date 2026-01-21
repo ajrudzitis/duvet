@@ -43,8 +43,12 @@ impl Merge {
             self.write_json_output(&merged_report, json_path).await?;
         }
 
-        if self.html.is_some() || self.lcov.is_some() {
-            eprintln!("Warning: HTML and LCOV output formats are not yet implemented for merge command");
+        if let Some(html_path) = &self.html {
+            self.write_html_output(&merged_report, html_path).await?;
+        }
+
+        if self.lcov.is_some() {
+            eprintln!("Warning: LCOV output format is not yet implemented for merge command");
         }
 
         Ok(())
@@ -126,6 +130,55 @@ impl Merge {
             .wrap_err("Failed to serialize merged report to JSON")?;
 
         progress!(progress, "Wrote merged report to {}", output_path);
+
+        Ok(())
+    }
+
+    /// Write the merged report to an HTML file.
+    ///
+    /// This generates an HTML file with the merged JSON data embedded in a script tag
+    /// and includes the JavaScript viewer for interactive browsing.
+    async fn write_html_output(&self, merged_report: &schema::MergedReport, output_path: &Path) -> Result {
+        use duvet_core::progress;
+
+        let progress = progress!("Writing HTML output");
+
+        // Create parent directories if needed
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)
+                .into_diagnostic()
+                .wrap_err_with(|| format!("Failed to create output directory for '{}'", output_path))?;
+        }
+
+        // Serialize merged report to JSON string
+        let json_data = serde_json::to_string(merged_report)
+            .into_diagnostic()
+            .wrap_err("Failed to serialize merged report to JSON")?;
+
+        // Build HTML with embedded JSON and JavaScript viewer
+        let html = format!(
+            r#"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Compliance Coverage Report</title>
+<script type="application/json" id=result>{}</script>
+</head>
+<body>
+<div id=root></div>
+<script>{}</script>
+</body>
+</html>"#,
+            json_data,
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/www/public/script.js"))
+        );
+
+        // Write HTML to file
+        std::fs::write(output_path, html)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Failed to write HTML output to '{}'", output_path))?;
+
+        progress!(progress, "Wrote HTML report to {}", output_path);
 
         Ok(())
     }

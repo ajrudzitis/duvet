@@ -1,0 +1,48 @@
+{
+  "blob_link": "https://github.com/example/monorepo/blob/main",
+  "specifications": {
+    "https://example.com/spec": {
+      "title": "Example Specification",
+      "format": "markdown",
+      "requirements": [0],
+      "sections": [
+        {
+          "id": "section-1",
+          "title": "Requirements",
+          "lines": ["Requirement 1", "Requirement 2"]
+        }
+      ]
+    }
+  },
+  "annotations": [
+    {
+      "source": "pkg1/src/lib.rs",
+      "target_path": "https://example.com/spec",
+      "target_section": "section-1",
+      "line": 10,
+      "type": "SPEC",
+      "level": "MUST"
+    },
+    {
+      "source": "pkg2/src/impl.rs",
+      "target_path": "https://example.com/spec",
+      "target_section": "section-1",
+      "line": 15,
+      "type": "CITATION"
+    }
+  ],
+  "statuses": {
+    "0": {
+      "spec": 1,
+      "incomplete": 1,
+      "related": [1]
+    },
+    "1": {
+      "citation": 1
+    }
+  },
+  "refs": [
+    {},
+    {"spec": true, "level": "MUST"}
+  ]
+}
