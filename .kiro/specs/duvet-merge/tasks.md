@@ -109,22 +109,27 @@
   - [x] 14.4 Add integration test for JSON output with 2 input files
   - [x] 14.5 Add integration test for JSON output with 3+ input files
 
-## Phase 6: HTML and LCOV Output (Optional)
+## Phase 6: HTML and LCOV Output
 
-- [ ] 15. Evaluate HTML/LCOV generation approach
-  - [ ] 15.1 Assess complexity of reconstructing `ReportResult` from merged JSON
-  - [ ] 15.2 Document decision: reconstruct vs new generators vs JSON-only
-  - [ ] 15.3 Create implementation plan based on decision
+- [x] 15. Evaluate HTML/LCOV generation approach
+  - [x] 15.1 Assess complexity of reconstructing `ReportResult` from merged JSON
+  - [x] 15.2 Document decision: reconstruct vs new generators vs JSON-only
+  - [x] 15.3 Create implementation plan based on decision
 
-- [ ] 16. Implement HTML output (if feasible)
-  - [ ] 16.1 Implement reconstruction of `ReportResult` from merged JSON OR create new HTML generator
-  - [ ] 16.2 Reuse existing `html::report()` function or create new generator
-  - [ ] 16.3 Add integration test for HTML output
+- [ ] 16. Implement HTML output from merged JSON
+  - [ ] 16.1 Create `write_html_output()` method in `duvet/src/merge/mod.rs`
+  - [ ] 16.2 Modify `exec()` to call `write_html_output()` when `--html` flag is provided
+  - [ ] 16.3 Remove "not yet implemented" warning for HTML
+  - [ ] 16.4 Add integration test for HTML output with 2 input files
+  - [ ] 16.5 Add integration test for HTML output with 3 input files
+  - [ ] 16.6 Manually verify HTML opens in browser and displays correctly
 
-- [ ] 17. Implement LCOV output (if feasible)
-  - [ ] 17.1 Implement LCOV generation from merged JSON
-  - [ ] 17.2 Reuse existing `lcov::report()` function or create new generator
-  - [ ] 17.3 Add integration test for LCOV output
+- [ ]* 17. LCOV Output (DEFERRED - Future Enhancement)
+  - [ ]* 17.1 Gather user requirements for LCOV with merged reports
+  - [ ]* 17.2 Design LCOV format for multi-package merged data
+  - [ ]* 17.3 Implement new LCOV generator from merged JSON
+  - [ ]* 17.4 Add integration tests for LCOV output
+  - [ ]* 17.5 Document LCOV limitations and workarounds
 
 ## Phase 7: Testing and Validation
 
