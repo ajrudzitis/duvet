@@ -35,12 +35,98 @@ impl Merge {
         let reports = self.load_reports().await?;
         progress!(progress, "Loaded {} JSON reports", reports.len());
 
-        // TODO: Implement merge logic
-        eprintln!("Merge command not yet fully implemented");
-        eprintln!("Successfully loaded {} reports", reports.len());
-        eprintln!("JSON output: {:?}", self.json);
-        eprintln!("HTML output: {:?}", self.html);
-        eprintln!("LCOV output: {:?}", self.lcov);
+        // Perform the merge
+        let merged_report = self.merge_reports(&reports)?;
+
+        // Write outputs
+        if let Some(json_path) = &self.json {
+            self.write_json_output(&merged_report, json_path).await?;
+        }
+
+        if self.html.is_some() || self.lcov.is_some() {
+            eprintln!("Warning: HTML and LCOV output formats are not yet implemented for merge command");
+        }
+
+        Ok(())
+    }
+
+    /// Perform the merge operation on loaded reports.
+    ///
+    /// This orchestrates the complete merge workflow:
+    /// 1. Collect and deduplicate annotations
+    /// 2. Assign new sequential IDs
+    /// 3. Merge specifications
+    /// 4. Merge statuses
+    /// 5. Remap related annotation IDs
+    /// 6. Build the final merged report
+    fn merge_reports(&self, reports: &[schema::JsonReport]) -> Result<schema::MergedReport> {
+        use duvet_core::progress;
+
+        // Phase 1: Collect and deduplicate annotations
+        let progress = progress!("Merging annotations");
+        let collection = logic::collect_annotations(reports);
+        progress!(progress, "Collected {} unique annotations", collection.annotation_map.len());
+
+        // Phase 2: Assign new sequential IDs
+        let progress = progress!("Assigning new annotation IDs");
+        let assignment = logic::assign_new_ids(&collection);
+        progress!(progress, "Assigned IDs to {} annotations", assignment.merged_annotations.len());
+
+        // Phase 3: Merge specifications
+        let progress = progress!("Merging specifications");
+        let merged_specs = logic::merge_specifications(reports);
+        progress!(progress, "Merged {} specifications", merged_specs.len());
+
+        // Phase 4: Merge statuses
+        let progress = progress!("Merging statuses");
+        let status_collection = logic::merge_statuses(reports, &collection);
+        progress!(progress, "Merged {} statuses", status_collection.status_by_key.len());
+
+        // Phase 5: Remap related annotation IDs
+        let progress = progress!("Remapping annotation IDs");
+        let remapped_statuses = logic::remap_related_ids(&status_collection, &collection, &assignment, reports);
+        progress!(progress, "Remapped IDs in {} statuses", remapped_statuses.len());
+
+        // Phase 6: Build the final merged report
+        let merged_report = logic::build_merged_report(
+            reports,
+            &assignment,
+            remapped_statuses,
+            merged_specs,
+        );
+
+        Ok(merged_report)
+    }
+
+    /// Write the merged report to a JSON file.
+    async fn write_json_output(&self, merged_report: &schema::MergedReport, output_path: &Path) -> Result {
+        use duvet_core::progress;
+        use std::fs::File;
+        use std::io::BufWriter;
+
+        let progress = progress!("Writing JSON output");
+
+        // Create parent directories if needed
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)
+                .into_diagnostic()
+                .wrap_err_with(|| format!("Failed to create output directory for '{}'", output_path))?;
+        }
+
+        // Create the output file
+        let file = File::create(output_path)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Failed to create output file '{}'", output_path))?;
+
+        let mut writer = BufWriter::new(file);
+
+        // Serialize to JSON with pretty printing
+        serde_json::to_writer_pretty(&mut writer, merged_report)
+            .into_diagnostic()
+            .wrap_err("Failed to serialize merged report to JSON")?;
+
+        progress!(progress, "Wrote merged report to {}", output_path);
+
         Ok(())
     }
 
@@ -447,5 +533,203 @@ mod tests {
         let result = merge.load_reports().await;
         // This should fail at CLI parsing level, but if it gets here, should error
         assert!(result.is_err(), "Expected error for empty input list");
+    }
+
+    #[tokio::test]
+    async fn test_merge_two_reports_end_to_end() {
+        use std::io::Write;
+
+        // Create temporary directory for test files
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path();
+
+        // Create report1.json
+        let report1_path = temp_path.join("report1.json");
+        let mut file1 = std::fs::File::create(&report1_path).unwrap();
+        write!(file1, r#"{{
+            "blob_link": "https://github.com/example/repo/blob/main",
+            "specifications": {{}},
+            "annotations": [
+                {{
+                    "source": "src/lib.rs",
+                    "target_path": "https://example.com/spec",
+                    "target_section": "section-1",
+                    "line": 10,
+                    "type": "SPEC"
+                }}
+            ],
+            "statuses": {{
+                "0": {{"spec": 1}}
+            }},
+            "refs": []
+        }}"#).unwrap();
+        drop(file1);
+
+        // Create report2.json
+        let report2_path = temp_path.join("report2.json");
+        let mut file2 = std::fs::File::create(&report2_path).unwrap();
+        write!(file2, r#"{{
+            "blob_link": "https://github.com/example/repo/blob/main",
+            "specifications": {{}},
+            "annotations": [
+                {{
+                    "source": "src/lib.rs",
+                    "target_path": "https://example.com/spec",
+                    "target_section": "section-1",
+                    "line": 10,
+                    "type": "SPEC"
+                }},
+                {{
+                    "source": "src/other.rs",
+                    "target_path": "https://example.com/spec",
+                    "target_section": "section-1",
+                    "line": 20,
+                    "type": "TEST"
+                }}
+            ],
+            "statuses": {{
+                "0": {{"spec": 1}},
+                "1": {{"test": 1}}
+            }},
+            "refs": []
+        }}"#).unwrap();
+        drop(file2);
+
+        // Create merge command
+        let output_path = temp_path.join("merged.json");
+        let merge = Merge {
+            inputs: vec![
+                Path::from(report1_path.to_str().unwrap()),
+                Path::from(report2_path.to_str().unwrap()),
+            ],
+            json: Some(Path::from(output_path.to_str().unwrap())),
+            html: None,
+            lcov: None,
+        };
+
+        // Execute merge
+        let result = merge.exec().await;
+        assert!(result.is_ok(), "Merge should succeed: {:?}", result.err());
+
+        // Verify output file was created
+        assert!(output_path.exists(), "Output file should exist");
+
+        // Read and verify merged output
+        let merged_json = std::fs::read_to_string(&output_path).unwrap();
+        let merged: schema::JsonReport = serde_json::from_str(&merged_json).unwrap();
+
+        // Verify deduplication: should have 2 annotations (lib.rs deduplicated)
+        assert_eq!(merged.annotations.len(), 2);
+
+        // Verify status merging: lib.rs should have spec count of 2
+        let status0 = merged.statuses.get("0").unwrap();
+        assert_eq!(status0.spec, Some(2));
+
+        // Verify link preservation
+        assert_eq!(merged.blob_link, Some("https://github.com/example/repo/blob/main".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_merge_three_reports_end_to_end() {
+        use std::io::Write;
+
+        // Create temporary directory for test files
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path();
+
+        // Create report1.json
+        let report1_path = temp_path.join("report1.json");
+        let mut file1 = std::fs::File::create(&report1_path).unwrap();
+        write!(file1, r#"{{
+            "specifications": {{}},
+            "annotations": [
+                {{
+                    "source": "src/a.rs",
+                    "target_path": "spec",
+                    "line": 10
+                }}
+            ],
+            "statuses": {{
+                "0": {{"spec": 1}}
+            }},
+            "refs": []
+        }}"#).unwrap();
+        drop(file1);
+
+        // Create report2.json
+        let report2_path = temp_path.join("report2.json");
+        let mut file2 = std::fs::File::create(&report2_path).unwrap();
+        write!(file2, r#"{{
+            "specifications": {{}},
+            "annotations": [
+                {{
+                    "source": "src/b.rs",
+                    "target_path": "spec",
+                    "line": 20
+                }}
+            ],
+            "statuses": {{
+                "0": {{"citation": 1}}
+            }},
+            "refs": []
+        }}"#).unwrap();
+        drop(file2);
+
+        // Create report3.json
+        let report3_path = temp_path.join("report3.json");
+        let mut file3 = std::fs::File::create(&report3_path).unwrap();
+        write!(file3, r#"{{
+            "specifications": {{}},
+            "annotations": [
+                {{
+                    "source": "src/c.rs",
+                    "target_path": "spec",
+                    "line": 30
+                }}
+            ],
+            "statuses": {{
+                "0": {{"test": 1}}
+            }},
+            "refs": []
+        }}"#).unwrap();
+        drop(file3);
+
+        // Create merge command
+        let output_path = temp_path.join("merged.json");
+        let merge = Merge {
+            inputs: vec![
+                Path::from(report1_path.to_str().unwrap()),
+                Path::from(report2_path.to_str().unwrap()),
+                Path::from(report3_path.to_str().unwrap()),
+            ],
+            json: Some(Path::from(output_path.to_str().unwrap())),
+            html: None,
+            lcov: None,
+        };
+
+        // Execute merge
+        let result = merge.exec().await;
+        assert!(result.is_ok(), "Merge should succeed: {:?}", result.err());
+
+        // Verify output file was created
+        assert!(output_path.exists(), "Output file should exist");
+
+        // Read and verify merged output
+        let merged_json = std::fs::read_to_string(&output_path).unwrap();
+        let merged: schema::JsonReport = serde_json::from_str(&merged_json).unwrap();
+
+        // Verify all 3 annotations are present
+        assert_eq!(merged.annotations.len(), 3);
+
+        // Verify annotations are sorted
+        assert_eq!(merged.annotations[0].source, "src/a.rs");
+        assert_eq!(merged.annotations[1].source, "src/b.rs");
+        assert_eq!(merged.annotations[2].source, "src/c.rs");
+
+        // Verify all statuses are present
+        assert_eq!(merged.statuses.len(), 3);
+        assert!(merged.statuses.contains_key("0"));
+        assert!(merged.statuses.contains_key("1"));
+        assert!(merged.statuses.contains_key("2"));
     }
 }

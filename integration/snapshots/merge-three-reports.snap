@@ -1,0 +1,18 @@
+---
+source: integration/merge-three-reports.toml
+---
+     Loading JSON reports
+      Loaded 3 JSON reports
+     Merging annotations
+   Collected 5 unique annotations
+   Assigning new annotation IDs
+    Assigned IDs to 5 annotations
+     Merging specifications
+      Merged 2 specifications
+     Merging statuses
+      Merged 5 statuses
+   Remapping annotation IDs
+    Remapped IDs in 5 statuses
+     Writing JSON output
+       Wrote merged report to merged.json
+

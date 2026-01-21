@@ -102,12 +102,12 @@
   - [x] 13.3 Add serde serialization derives
   - [x] 13.4 Add unit tests for structure creation
 
-- [ ] 14. Implement JSON output
-  - [ ] 14.1 Implement JSON serialization of merged report
-  - [ ] 14.2 Write merged JSON to output file
-  - [ ] 14.3 Add progress indicator for "Writing JSON output"
-  - [ ] 14.4 Add integration test for JSON output with 2 input files
-  - [ ] 14.5 Add integration test for JSON output with 3+ input files
+- [x] 14. Implement JSON output
+  - [x] 14.1 Implement JSON serialization of merged report
+  - [x] 14.2 Write merged JSON to output file
+  - [x] 14.3 Add progress indicator for "Writing JSON output"
+  - [x] 14.4 Add integration test for JSON output with 2 input files
+  - [x] 14.5 Add integration test for JSON output with 3+ input files
 
 ## Phase 6: HTML and LCOV Output (Optional)
 
