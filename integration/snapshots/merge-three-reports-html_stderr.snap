@@ -1,8 +1,0 @@
----
-source: xtask/src/tests.rs
-assertion_line: 291
-expression: stderr
----
-$ test -f merged.html && echo 'HTML file created successfully'
-EXIT: Some(2)
-test: merged.html: unexpected operator

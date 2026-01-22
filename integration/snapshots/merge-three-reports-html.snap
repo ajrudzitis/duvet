@@ -1,9 +1,0 @@
----
-source: xtask/src/tests.rs
-assertion_line: 302
-expression: snapshot
----
-Merged Report Summary
-Annotations: 5
-Specifications: 2
-Statuses: 5
