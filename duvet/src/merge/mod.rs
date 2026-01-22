@@ -38,12 +38,25 @@ impl Merge {
         // Perform the merge
         let merged_report = self.merge_reports(&reports)?;
 
+        // Check for internal CI environment variables
+        let internal_json = std::env::var("DUVET_INTERNAL_CI_JSON").ok().map(Path::from);
+        let internal_html = std::env::var("DUVET_INTERNAL_CI_HTML").ok().map(Path::from);
+
         // Write outputs
         if let Some(json_path) = &self.json {
             self.write_json_output(&merged_report, json_path).await?;
         }
 
         if let Some(html_path) = &self.html {
+            self.write_html_output(&merged_report, html_path).await?;
+        }
+
+        // Write internal CI outputs if environment variables are set
+        if let Some(json_path) = internal_json.as_ref() {
+            self.write_json_output(&merged_report, json_path).await?;
+        }
+
+        if let Some(html_path) = internal_html.as_ref() {
             self.write_html_output(&merged_report, html_path).await?;
         }
 
