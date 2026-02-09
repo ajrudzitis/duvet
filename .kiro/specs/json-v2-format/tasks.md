@@ -21,8 +21,8 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
     - Verify serialize then deserialize equals original
     - **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 7.2**
 
-- [ ] 2. Implement stable annotation ID generation
-  - [ ] 2.1 Verify existing `stable_annotation_id()` in `annotation.rs` meets requirements
+- [x] 2. Implement stable annotation ID generation
+  - [x] 2.1 Verify existing `stable_annotation_id()` in `annotation.rs` meets requirements
     - Confirm FNV-1a 64-bit hash of (source_path, anno_line, target_path)
     - Confirm 16-character lowercase hex output
     - _Requirements: 2.1, 2.2_
@@ -33,7 +33,7 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
     - **Property 4: Stable ID Uniqueness** - different inputs produce different outputs
     - **Validates: Requirements 2.2, 2.3, 2.4**
 
-- [ ] 3. Checkpoint - Ensure data structures compile and tests pass
+- [x] 3. Checkpoint - Ensure data structures compile and tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 4. Implement line segmentation
