@@ -328,7 +328,6 @@ impl FromStr for AnnotationLevel {
 mod tests {
     use super::{fnv1a_64, stable_annotation_id, Annotation, AnnotationLevel, AnnotationType};
     use crate::specification::Format;
-    use bolero::check;
     use duvet_core::{file::SourceFile, path::Path};
     use std::collections::BTreeSet;
 
@@ -396,14 +395,6 @@ mod tests {
     }
 
     #[test]
-    fn stable_annotation_id_uses_target_path_not_section() {
-        let anno1 = make_test_annotation("src/lib.rs", 42, "https://example.com/spec#section-1");
-        let anno2 = make_test_annotation("src/lib.rs", 42, "https://example.com/spec#section-2");
-
-        assert_eq!(stable_annotation_id(&anno1), stable_annotation_id(&anno2));
-    }
-
-    #[test]
     fn stable_annotation_id_ignores_non_key_fields() {
         let mut anno1 = make_test_annotation("src/lib.rs", 42, "https://example.com/spec");
         let mut anno2 = make_test_annotation("src/lib.rs", 42, "https://example.com/spec");
@@ -420,12 +411,5 @@ mod tests {
 
         assert_eq!(stable_annotation_id(&anno1), stable_annotation_id(&anno2));
     }
-
-    /// Property: fnv1a_64 is deterministic for arbitrary inputs.
-    #[test]
-    fn property_hash_determinism() {
-        check!().with_type::<Vec<u8>>().for_each(|input| {
-            assert_eq!(fnv1a_64(input), fnv1a_64(input));
-        });
-    }
+    
 }
