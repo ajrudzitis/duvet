@@ -16,6 +16,7 @@ use std::{collections::BTreeMap, sync::Arc};
 mod ci;
 mod html;
 mod json;
+pub mod json_v2;
 mod lcov;
 mod snapshot;
 mod stats;

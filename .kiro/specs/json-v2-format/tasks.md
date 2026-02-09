@@ -6,8 +6,8 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
 
 ## Tasks
 
-- [ ] 1. Define v2 data structures
-  - [ ] 1.1 Create `duvet/src/report/json_v2.rs` module with ReportV2, SpecificationV2, SectionV2, LineV2, LineSegmentV2, AnnotationV2, CoverageStatus, and RefStatus structs
+- [x] 1. Define v2 data structures
+  - [x] 1.1 Create `duvet/src/report/json_v2.rs` module with ReportV2, SpecificationV2, SectionV2, LineV2, LineSegmentV2, AnnotationV2, CoverageStatus, and RefStatus structs
     - Add Apache-2.0 license header
     - Use `#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]` for all structs
     - Use `#[serde(skip_serializing_if = "...")]` for optional fields
@@ -15,7 +15,7 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
     - Use `#[serde(untagged)]` for LineV2 enum
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8_
 
-  - [ ] 1.2 Write property test for serialization round-trip
+  - [x] 1.2 Write property test for serialization round-trip
     - **Property 1: Serialization Round Trip**
     - Generate arbitrary ReportV2 instances using bolero
     - Verify serialize then deserialize equals original

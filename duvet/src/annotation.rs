@@ -13,7 +13,7 @@ use core::{
     str::FromStr,
 };
 use duvet_core::{diagnostic::IntoDiagnostic, error, file::Slice, path::Path, query};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     path::PathBuf,
@@ -281,7 +281,7 @@ impl FromStr for AnnotationType {
 }
 
 // The order is in terms of priority from least to greatest
-#[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 pub enum AnnotationLevel {
     #[default]
