@@ -36,15 +36,15 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
 - [x] 3. Checkpoint - Ensure data structures compile and tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 4. Implement line segmentation
-  - [ ] 4.1 Implement `segment_line()` function in `json_v2.rs`
+- [x] 4. Implement line segmentation
+  - [x] 4.1 Implement `segment_line()` function in `json_v2.rs`
     - Take line slice and references as input
     - Collect boundary points from reference start/end positions
     - Build segments between consecutive boundaries
     - Return `LineV2::Plain` if no references, `LineV2::Segmented` otherwise
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-  - [ ] 4.2 Write property tests for line segmentation
+  - [x] 4.2 Write property tests for line segmentation
     - **Property 5: Line Segmentation Completeness** - concatenation equals original
     - **Property 6: Line Segmentation Coverage Accuracy** - annotation_ids are correct
     - **Validates: Requirements 3.4, 3.5**
