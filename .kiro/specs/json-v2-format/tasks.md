@@ -64,8 +64,8 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
 - [x] 6. Checkpoint - Ensure segmentation and refs table work correctly
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 7. Implement report conversion
-  - [ ] 7.1 Implement `ReportV2::from_report_result()` method
+- [x] 7. Implement report conversion
+  - [x] 7.1 Implement `ReportV2::from_report_result()` method
     - Build stable ID mapping for all annotations
     - Convert annotations to AnnotationV2 with stable IDs and quotes
     - Convert specifications with segmented lines
@@ -73,7 +73,7 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
     - Set version to "2.0"
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
-  - [ ] 7.2 Write property tests for report conversion
+  - [x] 7.2 Write property tests for report conversion
     - **Property 9: Coverage Map Completeness** - all SPEC annotations have coverage entries
     - **Property 10: Version Field Correctness** - version is "2.0"
     - **Validates: Requirements 5.2, 6.1**

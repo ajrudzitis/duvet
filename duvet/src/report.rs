@@ -20,7 +20,7 @@ pub mod json_v2;
 mod lcov;
 mod snapshot;
 mod stats;
-mod status;
+pub mod status;
 
 use stats::Statistics;
 
@@ -238,11 +238,11 @@ pub struct ReportResult<'a> {
 
 #[derive(Debug)]
 pub struct TargetReport {
-    references: Vec<Reference>,
-    specification: Arc<Specification>,
-    require_citations: bool,
-    require_tests: bool,
-    statuses: status::StatusMap,
+    pub references: Vec<Reference>,
+    pub specification: Arc<Specification>,
+    pub require_citations: bool,
+    pub require_tests: bool,
+    pub statuses: status::StatusMap,
 }
 
 impl TargetReport {
