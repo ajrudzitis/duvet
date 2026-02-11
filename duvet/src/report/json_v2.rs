@@ -603,4 +603,75 @@ mod tests {
             }
         });
     }
+
+    /// **Feature: json-v2-format, Property 7: Status ID Validity**
+    ///
+    /// For any sequence of RefStatus insertions into RefsTableBuilder,
+    /// all returned status_ids are valid indices into the final refs array.
+    ///
+    /// **Validates: Requirements 3.6, 4.1, 4.4, 6.5**
+    #[test]
+    fn status_id_validity() {
+        check!()
+            .with_type::<Vec<RefStatus>>()
+            .for_each(|statuses| {
+                let mut builder = RefsTableBuilder::new();
+                let mut returned_ids: Vec<usize> = Vec::new();
+
+                // Insert all statuses and collect returned IDs
+                for status in statuses {
+                    let id = builder.get_or_insert(status.clone());
+                    returned_ids.push(id);
+                }
+
+                // Build the final refs table
+                let refs = builder.build();
+
+                // Property: all returned IDs must be valid indices
+                for id in returned_ids {
+                    assert!(
+                        id < refs.len(),
+                        "status_id {} must be valid index into refs array of length {}",
+                        id,
+                        refs.len()
+                    );
+                }
+            });
+    }
+
+    /// **Feature: json-v2-format, Property 8: Refs Table Uniqueness**
+    ///
+    /// For any sequence of RefStatus insertions into RefsTableBuilder,
+    /// the final refs array contains no duplicate RefStatus entries.
+    ///
+    /// **Validates: Requirements 4.1, 6.5**
+    #[test]
+    fn refs_table_uniqueness() {
+        check!()
+            .with_type::<Vec<RefStatus>>()
+            .for_each(|statuses| {
+                let mut builder = RefsTableBuilder::new();
+
+                // Insert all statuses
+                for status in statuses {
+                    builder.get_or_insert(status.clone());
+                }
+
+                // Build the final refs table
+                let refs = builder.build();
+
+                // Property: no duplicate entries in refs table
+                let mut seen: std::collections::HashSet<&RefStatus> =
+                    std::collections::HashSet::new();
+
+                for (index, ref_status) in refs.iter().enumerate() {
+                    assert!(
+                        seen.insert(ref_status),
+                        "refs table contains duplicate entry at index {}: {:?}",
+                        index,
+                        ref_status
+                    );
+                }
+            });
+    }
 }

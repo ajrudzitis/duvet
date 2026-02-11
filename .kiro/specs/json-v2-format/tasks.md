@@ -49,14 +49,14 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
     - **Property 6: Line Segmentation Coverage Accuracy** - annotation_ids are correct
     - **Validates: Requirements 3.4, 3.5**
 
-- [ ] 5. Implement refs table builder
-  - [ ] 5.1 Implement `RefsTableBuilder` struct in `json_v2.rs`
+- [x] 5. Implement refs table builder
+  - [x] 5.1 Implement `RefsTableBuilder` struct in `json_v2.rs`
     - Track unique RefStatus combinations
     - Return existing index for duplicate combinations
     - Build final Vec<RefStatus> on completion
     - _Requirements: 4.1, 4.2, 4.3_
 
-  - [ ] 5.2 Write property tests for refs table
+  - [x] 5.2 Write property tests for refs table
     - **Property 7: Status ID Validity** - all status_ids are valid indices
     - **Property 8: Refs Table Uniqueness** - no duplicate entries
     - **Validates: Requirements 3.6, 4.1, 4.4, 6.5**
