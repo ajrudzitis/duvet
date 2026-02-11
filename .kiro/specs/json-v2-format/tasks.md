@@ -61,7 +61,7 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
     - **Property 8: Refs Table Uniqueness** - no duplicate entries
     - **Validates: Requirements 3.6, 4.1, 4.4, 6.5**
 
-- [ ] 6. Checkpoint - Ensure segmentation and refs table work correctly
+- [x] 6. Checkpoint - Ensure segmentation and refs table work correctly
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 7. Implement report conversion
