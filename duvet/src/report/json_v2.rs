@@ -631,6 +631,15 @@ fn build_specification_v2(
     }
 }
 
+/// Generate a v2 JSON report from a ReportResult.
+///
+/// This is the main entry point for CLI integration, matching the signature
+/// of other report functions like `json::report`.
+pub fn report(report: &crate::report::ReportResult, path: &duvet_core::path::Path) -> crate::Result {
+    let report_v2 = ReportV2::from_report_result(report);
+    write_report_v2(&report_v2, path.as_ref())
+}
+
 // ============================================================================
 // JSON I/O Functions
 // ============================================================================

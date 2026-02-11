@@ -100,19 +100,19 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
 - [x] 9. Checkpoint - Ensure I/O functions work correctly
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 10. Integrate with CLI
-  - [ ] 10.1 Add `--json-v2` flag to Report struct in `report.rs`
+- [x] 10. Integrate with CLI
+  - [x] 10.1 Add `--json-v2` flag to Report struct in `report.rs`
     - Add `json_v2: Option<Path>` field with `#[clap(long)]`
     - _Requirements: 8.1_
 
-  - [ ] 10.2 Wire up v2 report generation in `Report::exec()`
+  - [x] 10.2 Wire up v2 report generation in `Report::exec()`
     - Check if `json_v2` path is specified
     - Build ReportV2 from ReportResult
     - Write to specified path
     - Ensure v1 JSON generation still works when `--json` is specified
     - _Requirements: 8.2, 8.3, 8.4, 10.1, 10.3, 10.4_
 
-  - [ ] 10.3 Register json_v2 module in `report/mod.rs`
+  - [x] 10.3 Register json_v2 module in `report/mod.rs`
     - Add `mod json_v2;` declaration
     - _Requirements: 10.2_
 

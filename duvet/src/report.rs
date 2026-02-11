@@ -36,6 +36,9 @@ pub struct Report {
     json: Option<Path>,
 
     #[clap(long)]
+    json_v2: Option<Path>,
+
+    #[clap(long)]
     html: Option<Path>,
 
     #[clap(long)]
@@ -160,6 +163,7 @@ impl Report {
 
         let reports: &[(Option<&_>, ReportFn)] = &[
             (self.json.as_ref(), json::report),
+            (self.json_v2.as_ref(), json_v2::report),
             (self.html.as_ref(), html::report),
             (self.lcov.as_ref(), lcov::report),
             (
