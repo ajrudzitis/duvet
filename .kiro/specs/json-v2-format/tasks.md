@@ -78,20 +78,20 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
     - **Property 10: Version Field Correctness** - version is "2.0"
     - **Validates: Requirements 5.2, 6.1**
 
-- [ ] 8. Implement JSON I/O functions
-  - [ ] 8.1 Implement `write_report_v2()` and `read_report_v2()` functions
+- [x] 8. Implement JSON I/O functions
+  - [x] 8.1 Implement `write_report_v2()` and `read_report_v2()` functions
     - Use serde_json for serialization/deserialization
     - Use buffered I/O for file operations
     - Format JSON with indentation for readability
     - _Requirements: 7.1, 7.3_
 
-  - [ ] 8.2 Implement error handling for I/O operations
+  - [x] 8.2 Implement error handling for I/O operations
     - Return descriptive errors for parse failures
     - Return descriptive errors for I/O failures
     - Validate version field on read
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
-  - [ ] 8.3 Write unit tests for error handling
+  - [x] 8.3 Write unit tests for error handling
     - Test invalid JSON input
     - Test wrong version field
     - Test missing required fields

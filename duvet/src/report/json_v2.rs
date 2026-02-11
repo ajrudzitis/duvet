@@ -631,6 +631,77 @@ fn build_specification_v2(
     }
 }
 
+// ============================================================================
+// JSON I/O Functions
+// ============================================================================
+
+/// Write a v2 report to a file.
+///
+/// Uses buffered I/O and formats JSON with indentation for readability.
+pub fn write_report_v2(report: &ReportV2, path: &std::path::Path) -> crate::Result {
+    use std::fs::File;
+    use std::io::BufWriter;
+
+    // Create parent directories if needed
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let file = File::create(path).map_err(|e| {
+        duvet_core::error!("failed to create file '{}': {}", path.display(), e)
+    })?;
+    let writer = BufWriter::new(file);
+    write_report_v2_to_writer(report, writer)
+}
+
+/// Write a v2 report to a writer.
+///
+/// Formats JSON with indentation for readability.
+pub fn write_report_v2_to_writer<W: std::io::Write>(
+    report: &ReportV2,
+    writer: W,
+) -> crate::Result {
+    serde_json::to_writer_pretty(writer, report).map_err(|e| {
+        duvet_core::error!("failed to serialize report: {}", e)
+    })?;
+    Ok(())
+}
+
+/// Read a v2 report from a file.
+///
+/// Uses buffered I/O and validates the version field.
+pub fn read_report_v2(path: &std::path::Path) -> crate::Result<ReportV2> {
+    use std::fs::File;
+    use std::io::BufReader;
+
+    let file = File::open(path).map_err(|e| {
+        duvet_core::error!("failed to open file '{}': {}", path.display(), e)
+    })?;
+    let reader = BufReader::new(file);
+    read_report_v2_from_reader(reader).map_err(|e| {
+        duvet_core::error!("failed to read report from '{}': {}", path.display(), e)
+    })
+}
+
+/// Read a v2 report from a reader.
+///
+/// Validates the version field after deserialization.
+pub fn read_report_v2_from_reader<R: std::io::Read>(reader: R) -> crate::Result<ReportV2> {
+    let report: ReportV2 = serde_json::from_reader(reader).map_err(|e| {
+        duvet_core::error!("failed to parse JSON: {}", e)
+    })?;
+
+    // Validate version field
+    if report.version != "2.0" {
+        return Err(duvet_core::error!(
+            "unsupported report version '{}', expected '2.0'",
+            report.version
+        ));
+    }
+
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -970,5 +1041,101 @@ mod tests {
                 "version field must be '2.0' after round-trip"
             );
         });
+    }
+
+    // ========================================================================
+    // Error Handling Unit Tests
+    // ========================================================================
+
+    /// Test that invalid JSON input returns a descriptive parse error.
+    ///
+    /// **Validates: Requirements 9.1**
+    #[test]
+    fn read_invalid_json_returns_error() {
+        let invalid_json = "{ this is not valid json }";
+        let result = read_report_v2_from_reader(invalid_json.as_bytes());
+
+        assert!(result.is_err(), "invalid JSON should return an error");
+        let err = result.unwrap_err();
+        let err_msg = format!("{}", err);
+        assert!(
+            err_msg.contains("failed to parse JSON"),
+            "error message should mention parse failure: {}",
+            err_msg
+        );
+    }
+
+    /// Test that wrong version field returns an error.
+    ///
+    /// **Validates: Requirements 9.3**
+    #[test]
+    fn read_wrong_version_returns_error() {
+        let wrong_version_json = r#"{
+            "version": "1.0",
+            "specifications": {},
+            "annotations": [],
+            "coverage": {},
+            "refs": []
+        }"#;
+        let result = read_report_v2_from_reader(wrong_version_json.as_bytes());
+
+        assert!(result.is_err(), "wrong version should return an error");
+        let err = result.unwrap_err();
+        let err_msg = format!("{}", err);
+        assert!(
+            err_msg.contains("unsupported report version"),
+            "error message should mention unsupported version: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("1.0"),
+            "error message should include the actual version: {}",
+            err_msg
+        );
+    }
+
+    /// Test that missing required fields returns a descriptive error.
+    ///
+    /// **Validates: Requirements 9.4**
+    #[test]
+    fn read_missing_required_fields_returns_error() {
+        // Missing 'version' field
+        let missing_version = r#"{
+            "specifications": {},
+            "annotations": [],
+            "coverage": {},
+            "refs": []
+        }"#;
+        let result = read_report_v2_from_reader(missing_version.as_bytes());
+        assert!(
+            result.is_err(),
+            "missing version field should return an error"
+        );
+
+        // Missing 'specifications' field
+        let missing_specs = r#"{
+            "version": "2.0",
+            "annotations": [],
+            "coverage": {},
+            "refs": []
+        }"#;
+        let result = read_report_v2_from_reader(missing_specs.as_bytes());
+        assert!(
+            result.is_err(),
+            "missing specifications field should return an error"
+        );
+
+        // Missing 'annotations' field
+        let missing_annotations = r#"{
+            "version": "2.0",
+            "specifications": {},
+            "coverage": {},
+            "refs": []
+        }"#;
+        let result = read_report_v2_from_reader(missing_annotations.as_bytes());
+        assert!(
+            result.is_err(),
+            "missing annotations field should return an error"
+        );
     }
 }
