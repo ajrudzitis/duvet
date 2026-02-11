@@ -97,7 +97,7 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
     - Test missing required fields
     - _Requirements: 9.1, 9.3, 9.4_
 
-- [ ] 9. Checkpoint - Ensure I/O functions work correctly
+- [x] 9. Checkpoint - Ensure I/O functions work correctly
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 10. Integrate with CLI
