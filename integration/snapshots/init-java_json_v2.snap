@@ -1,0 +1,49 @@
+---
+source: xtask/src/tests.rs
+expression: json_v2
+---
+{
+  "annotations": [
+    {
+      "id": "e9cf92895791a690",
+      "level": "Auto",
+      "line": 1,
+      "quote": "Java SHOULD be auto-detected.",
+      "source": "src/main/HelloDuvet.java",
+      "target_path": "my-spec.md",
+      "target_section": "java",
+      "type": "CITATION"
+    }
+  ],
+  "coverage": {},
+  "refs": [
+    {},
+    {
+      "citation": true
+    }
+  ],
+  "specifications": {
+    "my-spec.md": {
+      "format": "markdown",
+      "sections": [
+        {
+          "id": "java",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "e9cf92895791a690"
+                ],
+                "status_id": 1,
+                "text": "Java SHOULD be auto-detected."
+              }
+            ]
+          ],
+          "title": "Java"
+        }
+      ],
+      "title": "Java"
+    }
+  },
+  "version": "2.0"
+}

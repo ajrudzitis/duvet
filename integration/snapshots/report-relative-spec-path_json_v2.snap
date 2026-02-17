@@ -1,0 +1,79 @@
+---
+source: xtask/src/tests.rs
+expression: json_v2
+---
+{
+  "annotations": [
+    {
+      "comment": "This is a test implementation requirement that MUST be annotated.\n",
+      "id": "4f6bcf735d51ffb4",
+      "level": "Must",
+      "line": 7,
+      "quote": "This is a test implementation requirement that MUST be annotated.",
+      "source": ".duvet/requirements/specifications/spec/section-1.toml",
+      "target_path": "../specifications/spec.md",
+      "target_section": "section-1",
+      "type": "SPEC"
+    },
+    {
+      "id": "60ab67994e3cbcc3",
+      "level": "Auto",
+      "line": 1,
+      "quote": "This is a test implementation requirement that MUST be annotated.",
+      "source": "src/lib.rs",
+      "target_path": "../specifications/spec.md",
+      "target_section": "section-1",
+      "type": "CITATION"
+    }
+  ],
+  "coverage": {
+    "4f6bcf735d51ffb4": {
+      "citation": 65,
+      "related": [
+        "60ab67994e3cbcc3"
+      ],
+      "spec": 65
+    }
+  },
+  "refs": [
+    {},
+    {
+      "citation": true,
+      "level": "Must",
+      "spec": true
+    }
+  ],
+  "specifications": {
+    "../specifications/spec.md": {
+      "format": "markdown",
+      "sections": [
+        {
+          "id": "test-specification",
+          "lines": [],
+          "title": "Test Specification"
+        },
+        {
+          "id": "section-1",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "4f6bcf735d51ffb4",
+                  "60ab67994e3cbcc3"
+                ],
+                "status_id": 1,
+                "text": "This is a test implementation requirement that MUST be annotated."
+              }
+            ]
+          ],
+          "requirements": [
+            "4f6bcf735d51ffb4"
+          ],
+          "title": "Section 1"
+        }
+      ],
+      "title": "Test Specification"
+    }
+  },
+  "version": "2.0"
+}

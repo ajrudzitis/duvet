@@ -1,0 +1,59 @@
+---
+source: xtask/src/tests.rs
+expression: json_v2
+---
+{
+  "annotations": [
+    {
+      "comment": "This SHOULD support compound requirements and it MUST deduplicate them for now.\n",
+      "id": "542dc87a792663e0",
+      "level": "Must",
+      "line": 7,
+      "quote": "This SHOULD support compound requirements and it MUST deduplicate them for now.",
+      "source": ".duvet/requirements/my-spec/testing.toml",
+      "target_path": "my-spec.md",
+      "target_section": "testing",
+      "type": "SPEC"
+    }
+  ],
+  "coverage": {
+    "542dc87a792663e0": {
+      "incomplete": 79,
+      "spec": 79
+    }
+  },
+  "refs": [
+    {},
+    {
+      "level": "Must",
+      "spec": true
+    }
+  ],
+  "specifications": {
+    "my-spec.md": {
+      "format": "markdown",
+      "sections": [
+        {
+          "id": "testing",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "542dc87a792663e0"
+                ],
+                "status_id": 1,
+                "text": "This SHOULD support compound requirements and it MUST deduplicate them for now."
+              }
+            ]
+          ],
+          "requirements": [
+            "542dc87a792663e0"
+          ],
+          "title": "Testing"
+        }
+      ],
+      "title": "Testing"
+    }
+  },
+  "version": "2.0"
+}

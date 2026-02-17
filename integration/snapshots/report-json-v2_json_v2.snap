@@ -1,0 +1,218 @@
+---
+source: xtask/src/tests.rs
+expression: json_v2
+---
+{
+  "annotations": [
+    {
+      "comment": "Feature A MUST be implemented correctly\n",
+      "id": "37c6fcd7aa4c626c",
+      "level": "Must",
+      "line": 7,
+      "quote": "Feature A MUST be implemented correctly",
+      "source": ".duvet/requirements/my-spec/feature-a.toml",
+      "target_path": "my-spec.md",
+      "target_section": "feature-a",
+      "type": "SPEC"
+    },
+    {
+      "comment": "Feature B SHOULD handle edge cases\n",
+      "id": "adfb04a02b5910e5",
+      "level": "Should",
+      "line": 7,
+      "quote": "Feature B SHOULD handle edge cases",
+      "source": ".duvet/requirements/my-spec/feature-b.toml",
+      "target_path": "my-spec.md",
+      "target_section": "feature-b",
+      "type": "SPEC"
+    },
+    {
+      "comment": "Feature C MAY be optional\n",
+      "id": "1f25e1d76bfcb8c2",
+      "level": "May",
+      "line": 7,
+      "quote": "Feature C MAY be optional",
+      "source": ".duvet/requirements/my-spec/feature-c.toml",
+      "target_path": "my-spec.md",
+      "target_section": "feature-c",
+      "type": "SPEC"
+    },
+    {
+      "id": "7036845e2778a097",
+      "level": "Auto",
+      "line": 1,
+      "quote": "Feature A MUST be implemented correctly",
+      "source": "src/impl.rs",
+      "target_path": "my-spec.md",
+      "target_section": "feature-a",
+      "type": "SPEC"
+    },
+    {
+      "id": "b8a9b0cb87021c1b",
+      "level": "Auto",
+      "line": 5,
+      "quote": "Feature A MUST be implemented correctly",
+      "source": "src/impl.rs",
+      "target_path": "my-spec.md",
+      "target_section": "feature-a",
+      "type": "TEST"
+    },
+    {
+      "id": "5683ab4bd9319faf",
+      "level": "Auto",
+      "line": 9,
+      "quote": "Feature B SHOULD handle edge cases",
+      "source": "src/impl.rs",
+      "target_path": "my-spec.md",
+      "target_section": "feature-b",
+      "type": "IMPLICATION"
+    },
+    {
+      "id": "e1f42d18db69707e",
+      "level": "Auto",
+      "line": 1,
+      "quote": "Feature B SHOULD handle edge cases",
+      "source": "src/lib.rs",
+      "target_path": "my-spec.md",
+      "target_section": "feature-b",
+      "type": "CITATION"
+    },
+    {
+      "id": "e7b90fa49bc6415a",
+      "level": "Auto",
+      "line": 5,
+      "quote": "Feature C MAY be optional",
+      "source": "src/lib.rs",
+      "target_path": "my-spec.md",
+      "target_section": "feature-c",
+      "type": "EXCEPTION"
+    }
+  ],
+  "coverage": {
+    "1f25e1d76bfcb8c2": {
+      "exception": 25,
+      "related": [
+        "e7b90fa49bc6415a"
+      ],
+      "spec": 25
+    },
+    "37c6fcd7aa4c626c": {
+      "related": [
+        "b8a9b0cb87021c1b"
+      ],
+      "spec": 39,
+      "test": 39
+    },
+    "7036845e2778a097": {
+      "related": [
+        "b8a9b0cb87021c1b"
+      ],
+      "spec": 39,
+      "test": 39
+    },
+    "adfb04a02b5910e5": {
+      "citation": 34,
+      "implication": 34,
+      "related": [
+        "5683ab4bd9319faf",
+        "e1f42d18db69707e"
+      ],
+      "spec": 34
+    }
+  },
+  "refs": [
+    {},
+    {
+      "level": "Must",
+      "spec": true,
+      "test": true
+    },
+    {
+      "citation": true,
+      "implication": true,
+      "level": "Should",
+      "spec": true
+    },
+    {
+      "exception": true,
+      "level": "May",
+      "spec": true
+    }
+  ],
+  "specifications": {
+    "my-spec.md": {
+      "format": "markdown",
+      "sections": [
+        {
+          "id": "my-specification",
+          "lines": [
+            "This is a test specification for JSON v2 format."
+          ],
+          "title": "My Specification"
+        },
+        {
+          "id": "feature-a",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "37c6fcd7aa4c626c",
+                  "7036845e2778a097",
+                  "b8a9b0cb87021c1b"
+                ],
+                "status_id": 1,
+                "text": "Feature A MUST be implemented correctly"
+              }
+            ]
+          ],
+          "requirements": [
+            "37c6fcd7aa4c626c",
+            "7036845e2778a097"
+          ],
+          "title": "Feature A"
+        },
+        {
+          "id": "feature-b",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "adfb04a02b5910e5",
+                  "5683ab4bd9319faf",
+                  "e1f42d18db69707e"
+                ],
+                "status_id": 2,
+                "text": "Feature B SHOULD handle edge cases"
+              }
+            ]
+          ],
+          "requirements": [
+            "adfb04a02b5910e5"
+          ],
+          "title": "Feature B"
+        },
+        {
+          "id": "feature-c",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "1f25e1d76bfcb8c2",
+                  "e7b90fa49bc6415a"
+                ],
+                "status_id": 3,
+                "text": "Feature C MAY be optional"
+              }
+            ]
+          ],
+          "requirements": [
+            "1f25e1d76bfcb8c2"
+          ],
+          "title": "Feature C"
+        }
+      ],
+      "title": "My Specification"
+    }
+  },
+  "version": "2.0"
+}

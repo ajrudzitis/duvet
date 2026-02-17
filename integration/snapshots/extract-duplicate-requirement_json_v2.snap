@@ -1,0 +1,76 @@
+---
+source: xtask/src/tests.rs
+expression: json_v2
+---
+{
+  "annotations": [
+    {
+      "comment": "This MUST deduplicate the requirement.\n",
+      "id": "79d147c8a4d4ac3a",
+      "level": "Must",
+      "line": 9,
+      "quote": "This MUST deduplicate the requirement.",
+      "source": ".duvet/requirements/my-spec/testing.toml",
+      "target_path": "my-spec.md",
+      "target_section": "testing",
+      "type": "SPEC"
+    },
+    {
+      "id": "3708ec719080b309",
+      "level": "Auto",
+      "line": 1,
+      "quote": "This MUST deduplicate the requirement.",
+      "source": "src/my-code.rs",
+      "target_path": "my-spec.md",
+      "target_section": "testing",
+      "type": "CITATION"
+    }
+  ],
+  "coverage": {
+    "79d147c8a4d4ac3a": {
+      "citation": 38,
+      "related": [
+        "3708ec719080b309"
+      ],
+      "spec": 38
+    }
+  },
+  "refs": [
+    {},
+    {
+      "citation": true,
+      "level": "Must",
+      "spec": true
+    }
+  ],
+  "specifications": {
+    "my-spec.md": {
+      "format": "markdown",
+      "sections": [
+        {
+          "id": "testing",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "79d147c8a4d4ac3a",
+                  "3708ec719080b309"
+                ],
+                "status_id": 1,
+                "text": "This MUST deduplicate the requirement."
+              }
+            ],
+            "",
+            "This MUST deduplicate the requirement."
+          ],
+          "requirements": [
+            "79d147c8a4d4ac3a"
+          ],
+          "title": "Testing"
+        }
+      ],
+      "title": "Testing"
+    }
+  },
+  "version": "2.0"
+}

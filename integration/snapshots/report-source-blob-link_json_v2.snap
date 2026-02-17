@@ -1,0 +1,133 @@
+---
+source: xtask/src/tests.rs
+expression: json_v2
+---
+{
+  "annotations": [
+    {
+      "comment": "Feature A MUST be implemented\n",
+      "id": "37c6fcd7aa4c626c",
+      "level": "Must",
+      "line": 7,
+      "quote": "Feature A MUST be implemented",
+      "source": ".duvet/requirements/my-spec/feature-a.toml",
+      "target_path": "my-spec.md",
+      "target_section": "feature-a",
+      "type": "SPEC"
+    },
+    {
+      "comment": "Feature B SHOULD be implemented\n",
+      "id": "adfb04a02b5910e5",
+      "level": "Should",
+      "line": 7,
+      "quote": "Feature B SHOULD be implemented",
+      "source": ".duvet/requirements/my-spec/feature-b.toml",
+      "target_path": "my-spec.md",
+      "target_section": "feature-b",
+      "type": "SPEC"
+    },
+    {
+      "blob_link": "https://github.com/org/package-a/blob/main",
+      "id": "c6e59bbeb99c459c",
+      "level": "Auto",
+      "line": 1,
+      "quote": "Feature A MUST be implemented",
+      "source": "package-a/src/impl.rs",
+      "target_path": "my-spec.md",
+      "target_section": "feature-a",
+      "type": "CITATION"
+    },
+    {
+      "id": "1abea8dbc2d76ecf",
+      "level": "Auto",
+      "line": 1,
+      "quote": "Feature B SHOULD be implemented",
+      "source": "package-b/src/impl.rs",
+      "target_path": "my-spec.md",
+      "target_section": "feature-b",
+      "type": "CITATION"
+    }
+  ],
+  "blob_link": "https://github.com/org/main-repo/blob/main",
+  "coverage": {
+    "37c6fcd7aa4c626c": {
+      "citation": 29,
+      "related": [
+        "c6e59bbeb99c459c"
+      ],
+      "spec": 29
+    },
+    "adfb04a02b5910e5": {
+      "citation": 31,
+      "related": [
+        "1abea8dbc2d76ecf"
+      ],
+      "spec": 31
+    }
+  },
+  "refs": [
+    {},
+    {
+      "citation": true,
+      "level": "Must",
+      "spec": true
+    },
+    {
+      "citation": true,
+      "level": "Should",
+      "spec": true
+    }
+  ],
+  "specifications": {
+    "my-spec.md": {
+      "format": "markdown",
+      "sections": [
+        {
+          "id": "my-specification",
+          "lines": [],
+          "title": "My Specification"
+        },
+        {
+          "id": "feature-a",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "37c6fcd7aa4c626c",
+                  "c6e59bbeb99c459c"
+                ],
+                "status_id": 1,
+                "text": "Feature A MUST be implemented"
+              }
+            ]
+          ],
+          "requirements": [
+            "37c6fcd7aa4c626c"
+          ],
+          "title": "Feature A"
+        },
+        {
+          "id": "feature-b",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "adfb04a02b5910e5",
+                  "1abea8dbc2d76ecf"
+                ],
+                "status_id": 2,
+                "text": "Feature B SHOULD be implemented"
+              }
+            ]
+          ],
+          "requirements": [
+            "adfb04a02b5910e5"
+          ],
+          "title": "Feature B"
+        }
+      ],
+      "title": "My Specification"
+    }
+  },
+  "version": "2.0"
+}

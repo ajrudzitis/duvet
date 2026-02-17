@@ -1,0 +1,49 @@
+---
+source: xtask/src/tests.rs
+expression: json_v2
+---
+{
+  "annotations": [
+    {
+      "id": "7e943f24baecdf39",
+      "level": "Auto",
+      "line": 1,
+      "quote": "Python SHOULD be auto-detected.",
+      "source": "src/testing.py",
+      "target_path": "my-spec.md",
+      "target_section": "python",
+      "type": "CITATION"
+    }
+  ],
+  "coverage": {},
+  "refs": [
+    {},
+    {
+      "citation": true
+    }
+  ],
+  "specifications": {
+    "my-spec.md": {
+      "format": "markdown",
+      "sections": [
+        {
+          "id": "python",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "7e943f24baecdf39"
+                ],
+                "status_id": 1,
+                "text": "Python SHOULD be auto-detected."
+              }
+            ]
+          ],
+          "title": "Python"
+        }
+      ],
+      "title": "Python"
+    }
+  },
+  "version": "2.0"
+}

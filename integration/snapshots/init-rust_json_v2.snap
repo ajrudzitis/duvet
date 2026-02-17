@@ -1,0 +1,49 @@
+---
+source: xtask/src/tests.rs
+expression: json_v2
+---
+{
+  "annotations": [
+    {
+      "id": "e1f42d18db69707e",
+      "level": "Auto",
+      "line": 1,
+      "quote": "Rust SHOULD be auto-detected.",
+      "source": "src/lib.rs",
+      "target_path": "my-spec.md",
+      "target_section": "rust",
+      "type": "CITATION"
+    }
+  ],
+  "coverage": {},
+  "refs": [
+    {},
+    {
+      "citation": true
+    }
+  ],
+  "specifications": {
+    "my-spec.md": {
+      "format": "markdown",
+      "sections": [
+        {
+          "id": "rust",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "e1f42d18db69707e"
+                ],
+                "status_id": 1,
+                "text": "Rust SHOULD be auto-detected."
+              }
+            ]
+          ],
+          "title": "Rust"
+        }
+      ],
+      "title": "Rust"
+    }
+  },
+  "version": "2.0"
+}

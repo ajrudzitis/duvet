@@ -1,0 +1,65 @@
+# Integration test for JSON v2 format
+# Tests Requirements 8.1, 8.2: --json-v2 flag generates v2 JSON report
+
+source = { local = true }
+cmd = ["duvet report"]
+
+[[file]]
+path = ".duvet/config.toml"
+contents = """
+'$schema' = "https://awslabs.github.io/duvet/config/v0.4.0.json"
+
+[[source]]
+pattern = "src/**/*.rs"
+
+[[specification]]
+source = "my-spec.md"
+"""
+
+[[file]]
+path = "src/impl.rs"
+contents = """
+//= my-spec.md#feature-a
+//= type=spec
+//# Feature A MUST be implemented correctly
+
+//= my-spec.md#feature-a
+//= type=test
+//# Feature A MUST be implemented correctly
+
+//= my-spec.md#feature-b
+//= type=implication
+//# Feature B SHOULD handle edge cases
+"""
+
+[[file]]
+path = "src/lib.rs"
+contents = """
+//= my-spec.md#feature-b
+//= type=citation
+//# Feature B SHOULD handle edge cases
+
+//= my-spec.md#feature-c
+//= type=exception
+//# Feature C MAY be optional
+"""
+
+[[file]]
+path = "my-spec.md"
+contents = """
+# My Specification
+
+This is a test specification for JSON v2 format.
+
+## Feature A
+
+Feature A MUST be implemented correctly
+
+## Feature B
+
+Feature B SHOULD handle edge cases
+
+## Feature C
+
+Feature C MAY be optional
+"""

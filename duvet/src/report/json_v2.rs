@@ -1147,4 +1147,139 @@ mod tests {
             "missing annotations field should return an error"
         );
     }
+
+    /// Integration test for file-based round-trip.
+    /// Generates a v2 report, writes it to a temp file, reads it back, and verifies structure.
+    ///
+    /// **Validates: Requirements 7.2**
+    #[test]
+    fn file_round_trip_integration() {
+        use std::collections::BTreeMap;
+
+        // Create a realistic ReportV2 with all field types
+        let mut specifications = BTreeMap::new();
+        specifications.insert(
+            "test-spec.md".to_string(),
+            SpecificationV2 {
+                title: Some("Test Specification".to_string()),
+                format: "markdown".to_string(),
+                sections: vec![
+                    SectionV2 {
+                        id: "section-1".to_string(),
+                        title: "Introduction".to_string(),
+                        lines: vec![LineV2::Plain("This is plain text.".to_string())],
+                        requirements: vec![],
+                    },
+                    SectionV2 {
+                        id: "section-2".to_string(),
+                        title: "Requirements".to_string(),
+                        lines: vec![LineV2::Segmented(vec![
+                            LineSegmentV2 {
+                                annotation_ids: vec!["abc123def456".to_string()],
+                                status_id: 1,
+                                text: "MUST implement".to_string(),
+                            },
+                            LineSegmentV2 {
+                                annotation_ids: vec![],
+                                status_id: 0,
+                                text: " this feature".to_string(),
+                            },
+                        ])],
+                        requirements: vec!["abc123def456".to_string()],
+                    },
+                ],
+            },
+        );
+
+        let mut coverage = BTreeMap::new();
+        coverage.insert(
+            "abc123def456".to_string(),
+            CoverageStatus {
+                spec: 14,
+                incomplete: 0,
+                citation: 14,
+                implication: 0,
+                test: 0,
+                exception: 0,
+                todo: 0,
+                related: vec!["related123".to_string()],
+            },
+        );
+
+        let original = ReportV2 {
+            version: "2.0".to_string(),
+            blob_link: Some("https://github.com/test/repo/blob/main".to_string()),
+            issue_link: Some("https://github.com/test/repo/issues".to_string()),
+            specifications,
+            annotations: vec![
+                AnnotationV2 {
+                    id: "abc123def456".to_string(),
+                    source: "src/lib.rs".to_string(),
+                    blob_link: Some("https://github.com/test/repo/blob/main/src/lib.rs".to_string()),
+                    target_path: "test-spec.md".to_string(),
+                    target_section: Some("section-2".to_string()),
+                    quote: "MUST implement".to_string(),
+                    anno_type: AnnotationType::Spec,
+                    level: AnnotationLevel::Must,
+                    line: Some(42),
+                    comment: Some("Implementation note".to_string()),
+                    feature: Some("core".to_string()),
+                    tracking_issue: Some("https://github.com/test/repo/issues/1".to_string()),
+                    tags: vec!["important".to_string(), "v1".to_string()],
+                },
+                AnnotationV2 {
+                    id: "related123".to_string(),
+                    source: "src/test.rs".to_string(),
+                    blob_link: None,
+                    target_path: "test-spec.md".to_string(),
+                    target_section: Some("section-2".to_string()),
+                    quote: "MUST implement".to_string(),
+                    anno_type: AnnotationType::Citation,
+                    level: AnnotationLevel::Auto,
+                    line: Some(10),
+                    comment: None,
+                    feature: None,
+                    tracking_issue: None,
+                    tags: vec![],
+                },
+            ],
+            coverage,
+            refs: vec![
+                RefStatus::default(),
+                RefStatus {
+                    spec: true,
+                    citation: true,
+                    implication: false,
+                    test: false,
+                    exception: false,
+                    todo: false,
+                    level: AnnotationLevel::Must,
+                },
+            ],
+        };
+
+        // Write to temp file
+        let temp_dir = std::env::temp_dir();
+        let temp_path = temp_dir.join("duvet_v2_roundtrip_test.json");
+
+        write_report_v2(&original, &temp_path).expect("write should succeed");
+
+        // Read back
+        let loaded = read_report_v2(&temp_path).expect("read should succeed");
+
+        // Verify structure matches
+        assert_eq!(loaded.version, original.version);
+        assert_eq!(loaded.blob_link, original.blob_link);
+        assert_eq!(loaded.issue_link, original.issue_link);
+        assert_eq!(loaded.annotations.len(), original.annotations.len());
+        assert_eq!(loaded.specifications.len(), original.specifications.len());
+        assert_eq!(loaded.coverage.len(), original.coverage.len());
+        assert_eq!(loaded.refs.len(), original.refs.len());
+
+        // Verify deep equality
+        assert_eq!(loaded, original, "round-trip should preserve all data");
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_path);
+    }
 }

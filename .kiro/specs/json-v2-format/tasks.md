@@ -116,14 +116,14 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
     - Add `mod json_v2;` declaration
     - _Requirements: 10.2_
 
-- [ ] 11. Add integration tests
-  - [ ] 11.1 Create integration test config for v2 JSON output
+- [x] 11. Add integration tests
+  - [x] 11.1 Create integration test config for v2 JSON output
     - Add test config in `integration/` directory
     - Generate v2 JSON report
     - Add snapshot test for v2 JSON structure
     - _Requirements: 8.1, 8.2_
 
-  - [ ] 11.2 Write integration test for round-trip
+  - [x] 11.2 Write integration test for round-trip
     - Generate v2 report, read it back, verify structure
     - _Requirements: 7.2_
 

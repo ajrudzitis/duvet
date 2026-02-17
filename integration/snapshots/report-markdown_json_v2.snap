@@ -1,0 +1,102 @@
+---
+source: xtask/src/tests.rs
+expression: json_v2
+---
+{
+  "annotations": [
+    {
+      "comment": "This quote MUST work\n",
+      "id": "79d147c8a4d4ac3a",
+      "level": "Must",
+      "line": 9,
+      "quote": "This quote MUST work",
+      "source": ".duvet/requirements/my-spec/testing.toml",
+      "target_path": "my-spec.md",
+      "target_section": "testing",
+      "type": "SPEC"
+    },
+    {
+      "id": "3708ec719080b309",
+      "level": "Auto",
+      "line": 1,
+      "quote": "This quote MUST work * with * bullets",
+      "source": "src/my-code.rs",
+      "target_path": "my-spec.md",
+      "target_section": "testing",
+      "type": "CITATION"
+    }
+  ],
+  "coverage": {
+    "79d147c8a4d4ac3a": {
+      "citation": 20,
+      "related": [
+        "3708ec719080b309"
+      ],
+      "spec": 20
+    }
+  },
+  "refs": [
+    {},
+    {
+      "citation": true,
+      "level": "Must",
+      "spec": true
+    },
+    {
+      "citation": true
+    }
+  ],
+  "specifications": {
+    "my-spec.md": {
+      "format": "markdown",
+      "sections": [
+        {
+          "id": "my-spec",
+          "lines": [
+            "here is a spec"
+          ],
+          "title": "My spec"
+        },
+        {
+          "id": "testing",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "79d147c8a4d4ac3a",
+                  "3708ec719080b309"
+                ],
+                "status_id": 1,
+                "text": "This quote MUST work"
+              }
+            ],
+            [
+              {
+                "annotation_ids": [
+                  "3708ec719080b309"
+                ],
+                "status_id": 2,
+                "text": "* with"
+              }
+            ],
+            [
+              {
+                "annotation_ids": [
+                  "3708ec719080b309"
+                ],
+                "status_id": 2,
+                "text": "* bullets"
+              }
+            ]
+          ],
+          "requirements": [
+            "79d147c8a4d4ac3a"
+          ],
+          "title": "Testing"
+        }
+      ],
+      "title": "My spec"
+    }
+  },
+  "version": "2.0"
+}

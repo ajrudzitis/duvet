@@ -1,0 +1,13 @@
+---
+source: xtask/src/tests.rs
+expression: snapshot
+---
+SPECIFICATION: [My Specification](my-spec.md)
+  SECTION: [Feature A](#feature-a)
+    TEXT[!MUST,test]: Feature A MUST be implemented correctly
+
+  SECTION: [Feature B](#feature-b)
+    TEXT[!SHOULD,implementation,implication]: Feature B SHOULD handle edge cases
+
+  SECTION: [Feature C](#feature-c)
+    TEXT[!MAY,exception]: Feature C MAY be optional

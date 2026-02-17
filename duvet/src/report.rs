@@ -145,6 +145,7 @@ impl Report {
         type ReportFn = fn(&ReportResult, &Path) -> crate::Result<()>;
 
         let internal_json = std::env::var("DUVET_INTERNAL_CI_JSON").ok().map(Path::from);
+        let internal_json_v2 = std::env::var("DUVET_INTERNAL_CI_JSON_V2").ok().map(Path::from);
         let internal_html = std::env::var("DUVET_INTERNAL_CI_HTML").ok().map(Path::from);
         let internal_snapshot = std::env::var("DUVET_INTERNAL_CI_SNAPSHOT")
             .ok()
@@ -183,6 +184,7 @@ impl Report {
                 },
             ),
             (internal_json.as_ref(), json::report),
+            (internal_json_v2.as_ref(), json_v2::report),
             (internal_html.as_ref(), html::report),
             // the duvet CI uses its own snapshotting mechanism
             (internal_snapshot.as_ref(), snapshot::report),

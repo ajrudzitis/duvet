@@ -1,0 +1,49 @@
+---
+source: xtask/src/tests.rs
+expression: json_v2
+---
+{
+  "annotations": [
+    {
+      "id": "03e17f1304ab11f4",
+      "level": "Auto",
+      "line": 2,
+      "quote": "C SHOULD be auto-detected.",
+      "source": "src/testing.c",
+      "target_path": "my-spec.md",
+      "target_section": "c",
+      "type": "CITATION"
+    }
+  ],
+  "coverage": {},
+  "refs": [
+    {},
+    {
+      "citation": true
+    }
+  ],
+  "specifications": {
+    "my-spec.md": {
+      "format": "markdown",
+      "sections": [
+        {
+          "id": "c",
+          "lines": [
+            [
+              {
+                "annotation_ids": [
+                  "03e17f1304ab11f4"
+                ],
+                "status_id": 1,
+                "text": "C SHOULD be auto-detected."
+              }
+            ]
+          ],
+          "title": "C"
+        }
+      ],
+      "title": "C"
+    }
+  },
+  "version": "2.0"
+}
