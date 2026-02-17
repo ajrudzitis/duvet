@@ -6,10 +6,12 @@
 //! This module provides a roundtrip-friendly JSON format that can be serialized
 //! and deserialized, enabling multi-package report merging and tooling integration.
 
-use crate::annotation::{stable_annotation_id, AnnotationLevel};
-use crate::reference::Reference;
-use crate::report::{ReportResult, TargetReport};
-use crate::specification::Line;
+use crate::{
+    annotation::{stable_annotation_id, AnnotationLevel},
+    reference::Reference,
+    report::{ReportResult, TargetReport},
+    specification::Line,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
@@ -604,7 +606,8 @@ fn build_specification_v2(
                         })
                         .unwrap_or_default();
 
-                    let line_v2 = segment_line(&line_text, line_offset, &refs_for_line, refs_builder);
+                    let line_v2 =
+                        segment_line(&line_text, line_offset, &refs_for_line, refs_builder);
                     lines_v2.push(line_v2);
                 }
             }
@@ -635,7 +638,10 @@ fn build_specification_v2(
 ///
 /// This is the main entry point for CLI integration, matching the signature
 /// of other report functions like `json::report`.
-pub fn report(report: &crate::report::ReportResult, path: &duvet_core::path::Path) -> crate::Result {
+pub fn report(
+    report: &crate::report::ReportResult,
+    path: &duvet_core::path::Path,
+) -> crate::Result {
     let report_v2 = ReportV2::from_report_result(report);
     write_report_v2(&report_v2, path.as_ref())
 }
@@ -648,17 +654,15 @@ pub fn report(report: &crate::report::ReportResult, path: &duvet_core::path::Pat
 ///
 /// Uses buffered I/O and formats JSON with indentation for readability.
 pub fn write_report_v2(report: &ReportV2, path: &std::path::Path) -> crate::Result {
-    use std::fs::File;
-    use std::io::BufWriter;
+    use std::{fs::File, io::BufWriter};
 
     // Create parent directories if needed
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    let file = File::create(path).map_err(|e| {
-        duvet_core::error!("failed to create file '{}': {}", path.display(), e)
-    })?;
+    let file = File::create(path)
+        .map_err(|e| duvet_core::error!("failed to create file '{}': {}", path.display(), e))?;
     let writer = BufWriter::new(file);
     write_report_v2_to_writer(report, writer)
 }
@@ -666,39 +670,33 @@ pub fn write_report_v2(report: &ReportV2, path: &std::path::Path) -> crate::Resu
 /// Write a v2 report to a writer.
 ///
 /// Formats JSON with indentation for readability.
-pub fn write_report_v2_to_writer<W: std::io::Write>(
-    report: &ReportV2,
-    writer: W,
-) -> crate::Result {
-    serde_json::to_writer_pretty(writer, report).map_err(|e| {
-        duvet_core::error!("failed to serialize report: {}", e)
-    })?;
+pub fn write_report_v2_to_writer<W: std::io::Write>(report: &ReportV2, writer: W) -> crate::Result {
+    serde_json::to_writer_pretty(writer, report)
+        .map_err(|e| duvet_core::error!("failed to serialize report: {}", e))?;
     Ok(())
 }
 
 /// Read a v2 report from a file.
 ///
 /// Uses buffered I/O and validates the version field.
+#[allow(dead_code)] // Public API for future merge functionality
 pub fn read_report_v2(path: &std::path::Path) -> crate::Result<ReportV2> {
-    use std::fs::File;
-    use std::io::BufReader;
+    use std::{fs::File, io::BufReader};
 
-    let file = File::open(path).map_err(|e| {
-        duvet_core::error!("failed to open file '{}': {}", path.display(), e)
-    })?;
+    let file = File::open(path)
+        .map_err(|e| duvet_core::error!("failed to open file '{}': {}", path.display(), e))?;
     let reader = BufReader::new(file);
-    read_report_v2_from_reader(reader).map_err(|e| {
-        duvet_core::error!("failed to read report from '{}': {}", path.display(), e)
-    })
+    read_report_v2_from_reader(reader)
+        .map_err(|e| duvet_core::error!("failed to read report from '{}': {}", path.display(), e))
 }
 
 /// Read a v2 report from a reader.
 ///
 /// Validates the version field after deserialization.
+#[allow(dead_code)] // Public API for future merge functionality
 pub fn read_report_v2_from_reader<R: std::io::Read>(reader: R) -> crate::Result<ReportV2> {
-    let report: ReportV2 = serde_json::from_reader(reader).map_err(|e| {
-        duvet_core::error!("failed to parse JSON: {}", e)
-    })?;
+    let report: ReportV2 = serde_json::from_reader(reader)
+        .map_err(|e| duvet_core::error!("failed to parse JSON: {}", e))?;
 
     // Validate version field
     if report.version != "2.0" {
@@ -728,10 +726,7 @@ mod tests {
             let json = serde_json::to_string(report).expect("serialization should succeed");
             let deserialized: ReportV2 =
                 serde_json::from_str(&json).expect("deserialization should succeed");
-            assert_eq!(
-                report, &deserialized,
-                "round-trip should preserve all data"
-            );
+            assert_eq!(report, &deserialized, "round-trip should preserve all data");
         });
     }
 
@@ -748,10 +743,10 @@ mod tests {
         #[derive(Debug, Clone, bolero::TypeGenerator)]
         struct TestInput {
             // Line text as ASCII bytes (will be converted to string)
-            #[generator(bolero::gen::<Vec<u8>>().with().len(1usize..100))]
+            #[generator(bolero::produce::<Vec<u8>>().with().len(1usize..100))]
             line_bytes: Vec<u8>,
             // Reference ranges as (start_offset, length, stable_id suffix)
-            #[generator(bolero::gen::<Vec<(u8, u8, u8)>>().with().len(0usize..5))]
+            #[generator(bolero::produce::<Vec<(u8, u8, u8)>>().with().len(0usize..5))]
             ref_specs: Vec<(u8, u8, u8)>,
         }
 
@@ -798,9 +793,7 @@ mod tests {
             // Property: concatenation of segments equals original line
             let concatenated: String = match &result {
                 LineV2::Plain(text) => text.clone(),
-                LineV2::Segmented(segments) => {
-                    segments.iter().map(|s| s.text.as_str()).collect()
-                }
+                LineV2::Segmented(segments) => segments.iter().map(|s| s.text.as_str()).collect(),
             };
 
             assert_eq!(
@@ -821,9 +814,9 @@ mod tests {
         #[derive(Debug, Clone, bolero::TypeGenerator)]
         struct TestInput {
             // ASCII bytes for predictable byte boundaries
-            #[generator(bolero::gen::<Vec<u8>>().with().len(1usize..50))]
+            #[generator(bolero::produce::<Vec<u8>>().with().len(1usize..50))]
             line_bytes: Vec<u8>,
-            #[generator(bolero::gen::<Vec<(u8, u8, u8)>>().with().len(1usize..4))]
+            #[generator(bolero::produce::<Vec<(u8, u8, u8)>>().with().len(1usize..4))]
             ref_specs: Vec<(u8, u8, u8)>,
         }
 
@@ -853,8 +846,8 @@ mod tests {
                         (end_pct, start_pct.max(end_pct + 1))
                     };
 
-                    let ref_start = line_offset.saturating_sub(line_len / 2)
-                        + (start_pct * line_len / 100);
+                    let ref_start =
+                        line_offset.saturating_sub(line_len / 2) + (start_pct * line_len / 100);
                     let ref_end = line_offset.saturating_sub(line_len / 2)
                         + (end_pct * line_len / 100).max(ref_start + 1);
 
@@ -908,31 +901,29 @@ mod tests {
     /// **Validates: Requirements 3.6, 4.1, 4.4, 6.5**
     #[test]
     fn status_id_validity() {
-        check!()
-            .with_type::<Vec<RefStatus>>()
-            .for_each(|statuses| {
-                let mut builder = RefsTableBuilder::new();
-                let mut returned_ids: Vec<usize> = Vec::new();
+        check!().with_type::<Vec<RefStatus>>().for_each(|statuses| {
+            let mut builder = RefsTableBuilder::new();
+            let mut returned_ids: Vec<usize> = Vec::new();
 
-                // Insert all statuses and collect returned IDs
-                for status in statuses {
-                    let id = builder.get_or_insert(status.clone());
-                    returned_ids.push(id);
-                }
+            // Insert all statuses and collect returned IDs
+            for status in statuses {
+                let id = builder.get_or_insert(status.clone());
+                returned_ids.push(id);
+            }
 
-                // Build the final refs table
-                let refs = builder.build();
+            // Build the final refs table
+            let refs = builder.build();
 
-                // Property: all returned IDs must be valid indices
-                for id in returned_ids {
-                    assert!(
-                        id < refs.len(),
-                        "status_id {} must be valid index into refs array of length {}",
-                        id,
-                        refs.len()
-                    );
-                }
-            });
+            // Property: all returned IDs must be valid indices
+            for id in returned_ids {
+                assert!(
+                    id < refs.len(),
+                    "status_id {} must be valid index into refs array of length {}",
+                    id,
+                    refs.len()
+                );
+            }
+        });
     }
 
     /// **Feature: json-v2-format, Property 8: Refs Table Uniqueness**
@@ -943,32 +934,27 @@ mod tests {
     /// **Validates: Requirements 4.1, 6.5**
     #[test]
     fn refs_table_uniqueness() {
-        check!()
-            .with_type::<Vec<RefStatus>>()
-            .for_each(|statuses| {
-                let mut builder = RefsTableBuilder::new();
+        check!().with_type::<Vec<RefStatus>>().for_each(|statuses| {
+            let mut builder = RefsTableBuilder::new();
 
-                // Insert all statuses
-                for status in statuses {
-                    builder.get_or_insert(status.clone());
-                }
+            // Insert all statuses
+            for status in statuses {
+                builder.get_or_insert(status.clone());
+            }
 
-                // Build the final refs table
-                let refs = builder.build();
+            // Build the final refs table
+            let refs = builder.build();
 
-                // Property: no duplicate entries in refs table
-                let mut seen: std::collections::HashSet<&RefStatus> =
-                    std::collections::HashSet::new();
+            // Property: no duplicate entries in refs table
+            let mut seen: std::collections::HashSet<&RefStatus> = std::collections::HashSet::new();
 
-                for (index, ref_status) in refs.iter().enumerate() {
-                    assert!(
-                        seen.insert(ref_status),
-                        "refs table contains duplicate entry at index {}: {:?}",
-                        index,
-                        ref_status
-                    );
-                }
-            });
+            for (index, ref_status) in refs.iter().enumerate() {
+                assert!(
+                    seen.insert(ref_status),
+                    "refs table contains duplicate entry at index {index}: {ref_status:?}",
+                );
+            }
+        });
     }
 
     /// **Feature: json-v2-format, Property 9: Coverage Map Completeness**
@@ -1000,8 +986,7 @@ mod tests {
             }
 
             // Serialize and deserialize to test round-trip
-            let json =
-                serde_json::to_string(&valid_report).expect("serialization should succeed");
+            let json = serde_json::to_string(&valid_report).expect("serialization should succeed");
             let deserialized: ReportV2 =
                 serde_json::from_str(&json).expect("deserialization should succeed");
 
@@ -1016,8 +1001,7 @@ mod tests {
             for spec_id in spec_annotation_ids {
                 assert!(
                     deserialized.coverage.contains_key(spec_id),
-                    "SPEC annotation with id '{}' must have a coverage entry after round-trip",
-                    spec_id
+                    "SPEC annotation with id '{spec_id}' must have a coverage entry after round-trip",
                 );
             }
         });
@@ -1066,11 +1050,10 @@ mod tests {
 
         assert!(result.is_err(), "invalid JSON should return an error");
         let err = result.unwrap_err();
-        let err_msg = format!("{}", err);
+        let err_msg = format!("{err}");
         assert!(
             err_msg.contains("failed to parse JSON"),
-            "error message should mention parse failure: {}",
-            err_msg
+            "error message should mention parse failure: {err_msg}",
         );
     }
 
@@ -1090,16 +1073,14 @@ mod tests {
 
         assert!(result.is_err(), "wrong version should return an error");
         let err = result.unwrap_err();
-        let err_msg = format!("{}", err);
+        let err_msg = format!("{err}");
         assert!(
             err_msg.contains("unsupported report version"),
-            "error message should mention unsupported version: {}",
-            err_msg
+            "error message should mention unsupported version: {err_msg}",
         );
         assert!(
             err_msg.contains("1.0"),
-            "error message should include the actual version: {}",
-            err_msg
+            "error message should include the actual version: {err_msg}",
         );
     }
 
@@ -1215,7 +1196,9 @@ mod tests {
                 AnnotationV2 {
                     id: "abc123def456".to_string(),
                     source: "src/lib.rs".to_string(),
-                    blob_link: Some("https://github.com/test/repo/blob/main/src/lib.rs".to_string()),
+                    blob_link: Some(
+                        "https://github.com/test/repo/blob/main/src/lib.rs".to_string(),
+                    ),
                     target_path: "test-spec.md".to_string(),
                     target_section: Some("section-2".to_string()),
                     quote: "MUST implement".to_string(),

@@ -127,7 +127,7 @@ This plan implements a roundtrip-friendly JSON v2 format for duvet reports. The 
     - Generate v2 report, read it back, verify structure
     - _Requirements: 7.2_
 
-- [ ] 12. Final checkpoint - Ensure all tests pass
+- [x] 12. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

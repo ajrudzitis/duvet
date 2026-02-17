@@ -281,7 +281,9 @@ impl FromStr for AnnotationType {
 }
 
 // The order is in terms of priority from least to greatest
-#[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize,
+)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 pub enum AnnotationLevel {
     #[default]
@@ -411,5 +413,4 @@ mod tests {
 
         assert_eq!(stable_annotation_id(&anno1), stable_annotation_id(&anno2));
     }
-    
 }
