@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "name": "Git Commit After Task",
+  "description": "Automatically creates a git commit after completing each task with the message format \"Task $N: $DESCRIPTION\". The commit MUST include changes to the kiro spec itself. ",
+  "version": "1",
+  "when": {
+    "type": "agentStop"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "If you just completed a task, make a git commit with the message format \"Task $N: $DESCRIPTION\" where $N is the task number and $DESCRIPTION is a one line description of what was accomplished. If no task was completed or this was just a question/discussion, skip the commit. Note that tasks related to creating specs should be prefixed with \"spec $SPEC_NAME:\" rather than \"Task $N\". "
+  },
+  "workspaceFolderName": "duvet",
+  "shortName": "git-commit-on-task"
+}
