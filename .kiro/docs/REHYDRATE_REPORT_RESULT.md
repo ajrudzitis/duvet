@@ -50,7 +50,7 @@ ReportV2
   ├─ annotations
   │    ├─ specification: Map<"spc-xxx", { source: SourceRef, title?, format }>
   │    ├─ section: Map<"spc-xxx", { source: SourceRef, short_name, long_name? }>
-  │    ├─ requirement: Map<"spc-xxx", { source: SourceRef, level, coverage: Map<cite-ID, [ByteRange]> }>
+  │    ├─ requirement: Map<"req-xxx", { source: SourceLocation, origin: SourceRef, level, coverage: Map<cite-ID, [ByteRange]> }>
   │    └─ impl: Map<"cite-xxx", { source: SourceLocation, target_source, target_ranges: [ByteRange], type, ... }>
   └─ issue_links: [String]
 ```
@@ -142,7 +142,7 @@ for range in &impl_anno.target_ranges {
 Each `RequirementAnnotation` maps to a SPEC-type `Annotation` + `Reference`:
 
 ```rust
-let text = spec_file.substr_range(req.source.start..req.source.end).unwrap();
+let text = spec_file.substr_range(req.origin.start..req.origin.end).unwrap();
 references.push(Reference {
     target: target.clone(),
     text,

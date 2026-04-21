@@ -124,10 +124,10 @@ All IDs use FNV-1a 64-bit → 16-char hex. The prefix indicates the hash input s
 | `repo-` | Repository | `blob_link` | `repo-d6e7f8a9b0c12345` |
 | `spc-` | Specification annotation | `source_id \0 start \0 end` (byte range, decimal strings) | `spc-a1b2c3d4e5f60001` |
 | `spc-` | Section annotation | `source_id \0 start \0 end` (byte range, decimal strings) | `spc-e5f6a7b8c9d01234` |
-| `spc-` | Requirement annotation | `source_id \0 start \0 end` (byte range, decimal strings) | `spc-f7a3b2c1e9d04856` |
+| `req-` | Requirement annotation | `source_id \0 start \0 end \0 authoring_id \0 line` (decimal strings) | `req-f7a3b2c1e9d04856` |
 | `cite-` | Impl annotation | `source_id \0 line \0 target_source_id` | `cite-c3d4e5f6a7b80912` |
 
-`\0` is the null byte separator between fields. Specification, section, and requirement annotations share the `spc-` prefix because they use the same algorithm (hash of inline source reference + byte range). For specification annotations, the byte range spans the entire file (start: 0, end: file length). They are stored in separate maps in the JSON, so identical IDs across groups are not a conflict.
+`\0` is the null byte separator between fields. Specification and section annotations share the `spc-` prefix because they use the same algorithm (hash of inline source reference + byte range). For specification annotations, the byte range spans the entire file (start: 0, end: file length). Requirement annotations use the `req-` prefix because their hash additionally includes the authoring site (`lnk-` ID + line) — this distinguishes independent requirements that quote the same spec byte range (e.g., a hand-authored TOML entry and an auto-extracted one, or duplicates in different requirement files).
 
 **`lnk-` hash when no repository:** When `repository` is `None` (no blob link configured for the source), use an empty string as the repository_id in the hash input: `FNV-1a(file_name \0 "")`. All files without an explicit repository are treated as belonging to the same implicit default repository. This is deterministic and produces consistent IDs across runs.
 
@@ -144,8 +144,8 @@ For each ID type, the hash inputs must be available both at report generation ti
 | `repo-` | ✅ blob_link from config (`[[source]]` or global) | ✅ `Repository.blob_link` |
 | `spc-` spec | ✅ Inline source ID + full file byte range | ✅ `SpecificationAnnotation.source` (all three fields) |
 | `spc-` section | ✅ Inline source ID + section byte offsets from parser | ✅ `SectionAnnotation.source` (all three fields) |
-| `spc-` requirement | ✅ Inline source ID + requirement byte offsets from extractor | ✅ `RequirementAnnotation.source` (all three fields) |
-| `cite-` | ✅ Linked source ID from file_name + repo_id, line from annotation parser, inline source ID from spec matching | ✅ `ImplAnnotation.source.source` (the `lnk-xxxx` key) + `.source.line` + `.target_source` |
+| `req-` requirement | ✅ Inline source ID + requirement byte offsets + authoring `lnk-` ID + anno_line | ✅ `RequirementAnnotation.origin` (spec range) + `.source` (authoring site) |
+| `cite-` | ✅ Linked source ID from file_name + repo_id, line from annotation parser, inline source ID from spec matching | ✅ `ImplAnnotation.source.src` (the `lnk-xxxx` key) + `.source.line` + `.target_source` |
 
 All inputs are available in both contexts.
 
@@ -157,6 +157,7 @@ All inputs are available in both contexts.
 - `src_id(contents: &[u8]) -> String`
 - `lnk_id(file_name: &str, repository_id: &str) -> String`
 - `spc_id(source_id: &str, start: usize, end: usize) -> String`
+- `req_id(source_id: &str, start: usize, end: usize, authoring_id: &str, line: usize) -> String`
 - `cite_id(source_id: &str, line: usize, target_source_id: &str) -> String`
 
 The caller is responsible for building lookup tables that map entities to their resolved IDs (e.g., mapping each unique blob_link to its `repo-` ID, each spec file's contents to its `src-` ID, etc.). This keeps the hash functions pure and independently testable. The wiring that builds these lookup tables and calls the ID functions with resolved inputs happens in Phase 2.5's `from_report_result()`.
@@ -280,13 +281,13 @@ pub struct AnnotationsV2 {
     /// JSON key: "https://awslabs.github.io/duvet/v2/annotations.json#section"
     pub section: BTreeMap<String, SectionAnnotation>,              // "spc-xxxx"
     /// JSON key: "https://awslabs.github.io/duvet/v2/annotations.json#requirement"
-    pub requirement: BTreeMap<String, RequirementAnnotation>,      // "spc-xxxx"
+    pub requirement: BTreeMap<String, RequirementAnnotation>,      // "req-xxxx"
     /// JSON key: "https://awslabs.github.io/duvet/v2/annotations.json#impl"
     pub r#impl: BTreeMap<String, ImplAnnotation>,                  // "cite-xxxx"
 }
 ```
 
-Specification, section, and requirement annotations all use the `spc-` prefix — they share the same hashing algorithm (`FNV-1a(source_id \0 start \0 end)`). Impl annotations use the `cite-` prefix (different algorithm). The annotation's type is determined by which group it belongs to, not by the prefix.
+Specification and section annotations use the `spc-` prefix — they share the same hashing algorithm (`FNV-1a(source_id \0 start \0 end)`). Requirement annotations use the `req-` prefix (same algorithm extended with authoring `lnk-` ID and line to distinguish duplicates). Impl annotations use the `cite-` prefix. The annotation's type is determined by which group it belongs to, not by the prefix.
 
 **Serde rename attributes:** The `SourcesV2` and `AnnotationsV2` structs require `#[serde(rename = "...")]` attributes on each field to produce the schema URL keys in JSON. For example:
 
@@ -306,14 +307,14 @@ Similarly for `AnnotationsV2` with `#specification`, `#section`, `#requirement`,
 ```rust
 /// A reference to a byte range within an inline source file.
 pub struct SourceRef {
-    pub source: String,    // "src-xxxx" key into sources.inline
+    pub src: String,       // "src-xxxx" key into sources.inline
     pub start: usize,      // start byte offset (inclusive)
     pub end: usize,        // end byte offset (exclusive)
 }
 
 /// A reference to a line in a source code file.
 pub struct SourceLocation {
-    pub source: String,        // "lnk-xxxx" key into sources.linked
+    pub src: String,           // "lnk-xxxx" key into sources.linked
     pub line: Option<usize>,   // line number in the file
 }
 
@@ -349,11 +350,17 @@ pub struct SectionAnnotation {
 
 ### Requirement annotation
 
-A requirement extracted from a specification. **No `section` field** — the section is inferrable from byte range containment within section annotations.
+A requirement extracted from a specification or authored in a requirement TOML file. **No `section` field** — the section is inferrable from byte range containment within section annotations.
 
 ```rust
 pub struct RequirementAnnotation {
-    pub source: SourceRef,
+    /// Authoring site: where this requirement was declared. Points at a
+    /// `.duvet/requirements/**/*.toml` file for extracted/hand-authored
+    /// requirements, or at the source file containing an inline
+    /// `//= type=spec` comment.
+    pub source: SourceLocation,
+    /// Spec byte range this requirement represents.
+    pub origin: SourceRef,
     pub level: AnnotationLevel,    // AUTO, MAY, SHOULD, MUST
 
     /// Coverage map: impl annotation "cite-xxxx" ID → list of byte ranges
@@ -494,27 +501,32 @@ The v1 JSON already uses `annotation.source.to_string_lossy()` to emit relative 
       "lnk-c5d9e4f3a2b16a78": {
         "file_name": "tests/server_test.rs",
         "repository": "repo-d6e7f8a9b0c12345"
+      },
+      "lnk-d7e8f9a0b1c23456": {
+        "file_name": ".duvet/requirements/rfc9000/section-2.1.toml",
+        "repository": "repo-d6e7f8a9b0c12345"
       }
     }
   },
   "annotations": {
     "https://awslabs.github.io/duvet/v2/annotations.json#specification": {
       "spc-a1b2c3d4e5f60001": {
-        "source": { "source": "src-a3f7b2c1e9d04856", "start": 0, "end": 98765 },
+        "source": { "src": "src-a3f7b2c1e9d04856", "start": 0, "end": 98765 },
         "title": "RFC 9000",
         "format": "ietf"
       }
     },
     "https://awslabs.github.io/duvet/v2/annotations.json#section": {
       "spc-e5f6a7b8c9d01234": {
-        "source": { "source": "src-a3f7b2c1e9d04856", "start": 12000, "end": 13000 },
+        "source": { "src": "src-a3f7b2c1e9d04856", "start": 12000, "end": 13000 },
         "short_name": "section-2.1",
         "long_name": "Request Methods"
       }
     },
     "https://awslabs.github.io/duvet/v2/annotations.json#requirement": {
-      "spc-f7a3b2c1e9d04856": {
-        "source": { "source": "src-a3f7b2c1e9d04856", "start": 12340, "end": 12405 },
+      "req-f7a3b2c1e9d04856": {
+        "source": { "src": "lnk-d7e8f9a0b1c23456", "line": 10 },
+        "origin": { "src": "src-a3f7b2c1e9d04856", "start": 12340, "end": 12405 },
         "level": "MUST",
         "coverage": {
           "cite-c3d4e5f6a7b80912": [
@@ -529,7 +541,7 @@ The v1 JSON already uses `annotation.source.to_string_lossy()` to emit relative 
     },
     "https://awslabs.github.io/duvet/v2/annotations.json#impl": {
       "cite-c3d4e5f6a7b80912": {
-        "source": { "source": "lnk-b4c8d3e2f1a05967", "line": 42 },
+        "source": { "src": "lnk-b4c8d3e2f1a05967", "line": 42 },
         "target_source": "src-a3f7b2c1e9d04856",
         "target_ranges": [
           { "start": 12340, "end": 12360 },
@@ -540,7 +552,7 @@ The v1 JSON already uses `annotation.source.to_string_lossy()` to emit relative 
         "comment": "Implemented in handle_request()"
       },
       "cite-d4e5f6a7b8091234": {
-        "source": { "source": "lnk-c5d9e4f3a2b16a78", "line": 15 },
+        "source": { "src": "lnk-c5d9e4f3a2b16a78", "line": 15 },
         "target_source": "src-a3f7b2c1e9d04856",
         "target_ranges": [
           { "start": 12350, "end": 12405 }
@@ -558,7 +570,7 @@ The v1 JSON already uses `annotation.source.to_string_lossy()` to emit relative 
 ```json
 {
   "cite-e5f6a7b8c9d01234": {
-    "source": { "source": "lnk-b4c8d3e2f1a05967", "line": 87 },
+    "source": { "src": "lnk-b4c8d3e2f1a05967", "line": 87 },
     "target_source": "src-a3f7b2c1e9d04856",
     "target_ranges": [
       { "start": 1000, "end": 1020 },
@@ -594,7 +606,7 @@ The conversion from `ReportResult` to the new `ReportV2` requires correlating an
 **Step 3: Build requirement annotations with `coverage`.**
 
 - For each SPEC annotation's references, determine its byte range in the spec (from `Reference.start()` / `Reference.end()`).
-- For each non-SPEC reference that overlaps this byte range, compute the **intersection** (clamped ranges) of the reference's byte range with the requirement's source range. Specifically, for each `ByteRange { start, end }` from the impl annotation's target_ranges, clamp to `max(start, req.source.start)..min(end, req.source.end)`. Discard ranges where the clamped start ≥ clamped end (no overlap). Record:
+- For each non-SPEC reference that overlaps this byte range, compute the **intersection** (clamped ranges) of the reference's byte range with the requirement's origin range. Specifically, for each `ByteRange { start, end }` from the impl annotation's target_ranges, clamp to `max(start, req.origin.start)..min(end, req.origin.end)`. Discard ranges where the clamped start ≥ clamped end (no overlap). Record:
   - The impl annotation's `cite-` ID as the coverage map key
   - The clamped byte range(s) as the coverage map value
 - This matches the existing `StatusMap::populate()` semantics, which uses `coverage.range(r.start()..r.end())` to iterate only the offsets *within* the SPEC reference's byte range. The new logic preserves `(start, end)` ranges attributed to specific impl annotations instead of just counting offsets.
@@ -608,7 +620,7 @@ The conversion from `ReportResult` to the new `ReportV2` requires correlating an
 Changes to `json_v2.rs`:
 
 1. Add `InlineSource`, `LinkedSource`, `SourcesV2` (JSON keys `#inline`/`#linked`), `Repository`, `repositories` map to `ReportV2`
-2. Add `AnnotationsV2` with `specification`, `section`, `requirement`, `impl` maps (JSON keys are schema URLs, map keys are `spc-`/`cite-` prefixed IDs)
+2. Add `AnnotationsV2` with `specification`, `section`, `requirement`, `impl` maps (JSON keys are schema URLs, map keys are `spc-`/`req-`/`cite-` prefixed IDs)
 3. Add `SourceRef`, `SourceLocation`, `SpecificationAnnotation`, `SectionAnnotation`, `RequirementAnnotation`, `ImplAnnotation`, `ByteRange` structs (no `id` field — ID is the map key)
 4. Remove `SpecificationV2`, `SectionV2`, `LineV2`, `LineSegmentV2`, `AnnotationV2`, `CoverageStatus` structs
 5. Remove `specifications` and `coverage` fields from `ReportV2`
@@ -666,7 +678,7 @@ When two input reports contain the same entity ID, the merge must decide whether
 | `lnk-` | No — ID is hash of `file_name` + `repository_id` | Union by ID |
 | `spc-` specification | `title` or `format` mismatch | Error (spec version drift between packages) |
 | `spc-` section | `short_name` or `long_name` mismatch | Error (spec version drift between packages) |
-| `spc-` requirement | `level` mismatch; `coverage` differs | Error on `level` mismatch. Union `coverage` maps (additive — this is the core merge operation). |
+| `req-` requirement | `level` mismatch; `coverage` differs | Error on `level` mismatch. Union `coverage` maps (additive — this is the core merge operation). |
 | `cite-` | Core fields or metadata differ | Error if `anno_type`, `level`, `target_ranges`, or `target_source` differ (indicates scanning inconsistency — same source file produced different results). Warn if only `comment`, `feature`, `tracking_issue`, or `tags` differ (metadata drift); take the value from the first input report. |
 
 **Why `cite-` conflicts indicate bugs:** A `cite-` ID collision means the same source file, same line, same target spec was scanned by two packages and produced different core results. This should not happen in normal operation. The most likely cause is different duvet versions or different spec file versions across packages.
@@ -831,7 +843,7 @@ If packages reference different spec versions, need strategy. Simplest: require 
         },
         "https://awslabs.github.io/duvet/v2/annotations.json#requirement": {
           "type": "object",
-          "description": "Map of 'spc-' prefixed ID to requirement annotation",
+          "description": "Map of 'req-' prefixed ID to requirement annotation",
           "additionalProperties": { "$ref": "#/$defs/RequirementAnnotation" }
         },
         "https://awslabs.github.io/duvet/v2/annotations.json#impl": {
@@ -925,12 +937,16 @@ If packages reference different spec versions, need strategy. Simplest: require 
     },
     "RequirementAnnotation": {
       "type": "object",
-      "description": "A requirement extracted from a specification document. Keyed by 'spc-' prefixed ID. Section is inferrable from byte range containment within section annotations.",
-      "required": ["source", "level"],
+      "description": "A requirement extracted from a specification document. Keyed by 'req-' prefixed ID. Section is inferrable from byte range containment within section annotations.",
+      "required": ["source", "origin", "level"],
       "properties": {
         "source": {
+          "$ref": "#/$defs/SourceLocation",
+          "description": "Authoring site: where this requirement was declared (TOML file or inline //= type=spec comment)"
+        },
+        "origin": {
           "$ref": "#/$defs/SourceRef",
-          "description": "Location of the requirement text in the specification file"
+          "description": "Spec byte range this requirement represents"
         },
         "level": {
           "type": "string",
@@ -985,9 +1001,9 @@ If packages reference different spec versions, need strategy. Simplest: require 
     "SourceRef": {
       "type": "object",
       "description": "A reference to a byte range within an inline source file",
-      "required": ["source", "start", "end"],
+      "required": ["src", "start", "end"],
       "properties": {
-        "source": {
+        "src": {
           "type": "string",
           "description": "'src-' prefixed key into the sources map (inline type)"
         },
@@ -1004,9 +1020,9 @@ If packages reference different spec versions, need strategy. Simplest: require 
     "SourceLocation": {
       "type": "object",
       "description": "A reference to a line in a source code file",
-      "required": ["source"],
+      "required": ["src"],
       "properties": {
-        "source": {
+        "src": {
           "type": "string",
           "description": "'lnk-' prefixed key into the sources map (linked type)"
         },
