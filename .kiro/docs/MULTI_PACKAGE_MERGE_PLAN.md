@@ -124,10 +124,12 @@ All IDs use FNV-1a 64-bit → 16-char hex. The prefix indicates the hash input s
 | `repo-` | Repository | `blob_link` | `repo-d6e7f8a9b0c12345` |
 | `spc-` | Specification annotation | `source_id \0 start \0 end` (byte range, decimal strings) | `spc-a1b2c3d4e5f60001` |
 | `spc-` | Section annotation | `source_id \0 start \0 end` (byte range, decimal strings) | `spc-e5f6a7b8c9d01234` |
-| `req-` | Requirement annotation | `source_id \0 start \0 end \0 authoring_id \0 line` (decimal strings) | `req-f7a3b2c1e9d04856` |
+| `req-` | Requirement annotation | `origin_id \0 s1 \0 e1 \0 s2 \0 e2 ... \0 source_id \0 line` (decimal strings, ranges sorted ascending) | `req-f7a3b2c1e9d04856` |
 | `cite-` | Impl annotation | `source_id \0 line \0 target_source_id` | `cite-c3d4e5f6a7b80912` |
 
 `\0` is the null byte separator between fields. Specification and section annotations share the `spc-` prefix because they use the same algorithm (hash of inline source reference + byte range). For specification annotations, the byte range spans the entire file (start: 0, end: file length). Requirement annotations use the `req-` prefix because their hash additionally includes the authoring site (`lnk-` ID + line) — this distinguishes independent requirements that quote the same spec byte range (e.g., a hand-authored TOML entry and an auto-extracted one, or duplicates in different requirement files).
+
+**Requirement range lists:** A single logical authoring site (one TOML `[[spec]]` or one inline `//= type=spec` comment) may match N disjoint byte ranges in the spec file — this happens when the quote spans regions the spec parser normalized away (IETF RFC page breaks, blank lines, etc.). The `req-` hash includes the full sorted range list so that one logical requirement produces exactly one `req-` ID, regardless of how many fragments the matching process yielded. The hash function sorts the range input internally to make the ID invariant under caller ordering.
 
 **`lnk-` hash when no repository:** When `repository` is `None` (no blob link configured for the source), use an empty string as the repository_id in the hash input: `FNV-1a(file_name \0 "")`. All files without an explicit repository are treated as belonging to the same implicit default repository. This is deterministic and produces consistent IDs across runs.
 
@@ -144,8 +146,8 @@ For each ID type, the hash inputs must be available both at report generation ti
 | `repo-` | ✅ blob_link from config (`[[source]]` or global) | ✅ `Repository.blob_link` |
 | `spc-` spec | ✅ Inline source ID + full file byte range | ✅ `SpecificationAnnotation.source` (all three fields) |
 | `spc-` section | ✅ Inline source ID + section byte offsets from parser | ✅ `SectionAnnotation.source` (all three fields) |
-| `req-` requirement | ✅ Inline source ID + requirement byte offsets + authoring `lnk-` ID + anno_line | ✅ `RequirementAnnotation.origin` (spec range) + `.source` (authoring site) |
-| `cite-` | ✅ Linked source ID from file_name + repo_id, line from annotation parser, inline source ID from spec matching | ✅ `ImplAnnotation.source.src` (the `lnk-xxxx` key) + `.source.line` + `.target_source` |
+| `req-` requirement | ✅ Inline source ID + sorted requirement byte range list + authoring `lnk-` ID + anno_line | ✅ `RequirementAnnotation.origin.src` + `.origin.ranges` + `.source.src` + `.source.line` |
+| `cite-` | ✅ Linked source ID from file_name + repo_id, line from annotation parser, inline source ID from spec matching | ✅ `ImplAnnotation.source.src` (the `lnk-xxxx` key) + `.source.line` + `.target.src` |
 
 All inputs are available in both contexts.
 
@@ -157,7 +159,7 @@ All inputs are available in both contexts.
 - `src_id(contents: &[u8]) -> String`
 - `lnk_id(file_name: &str, repository_id: &str) -> String`
 - `spc_id(source_id: &str, start: usize, end: usize) -> String`
-- `req_id(source_id: &str, start: usize, end: usize, authoring_id: &str, line: usize) -> String`
+- `req_id(origin_id: &str, ranges: &[(usize, usize)], source_id: &str, line: usize) -> String`
 - `cite_id(source_id: &str, line: usize, target_source_id: &str) -> String`
 
 The caller is responsible for building lookup tables that map entities to their resolved IDs (e.g., mapping each unique blob_link to its `repo-` ID, each spec file's contents to its `src-` ID, etc.). This keeps the hash functions pure and independently testable. The wiring that builds these lookup tables and calls the ID functions with resolved inputs happens in Phase 2.5's `from_report_result()`.
@@ -305,11 +307,22 @@ Similarly for `AnnotationsV2` with `#specification`, `#section`, `#requirement`,
 ### Shared types
 
 ```rust
-/// A reference to a byte range within an inline source file.
+/// A reference to a single contiguous byte range within an inline source
+/// file. Used for specification and section annotations, which always
+/// cover one contiguous span.
 pub struct SourceRef {
     pub src: String,       // "src-xxxx" key into sources.inline
     pub start: usize,      // start byte offset (inclusive)
     pub end: usize,        // end byte offset (exclusive)
+}
+
+/// A reference to one or more (possibly disjoint) byte ranges within an
+/// inline source file. Used wherever a matched quote can span multiple
+/// non-contiguous regions of the spec (e.g., IETF RFC page breaks).
+/// `ranges` is canonically sorted ascending and deduplicated.
+pub struct SourceRanges {
+    pub src: String,               // "src-xxxx" key into sources.inline
+    pub ranges: Vec<ByteRange>,    // ≥1 disjoint ranges
 }
 
 /// A reference to a line in a source code file.
@@ -359,8 +372,11 @@ pub struct RequirementAnnotation {
     /// requirements, or at the source file containing an inline
     /// `//= type=spec` comment.
     pub source: SourceLocation,
-    /// Spec byte range this requirement represents.
-    pub origin: SourceRef,
+    /// Spec byte range(s) this requirement represents. May contain
+    /// multiple disjoint ranges when the matched quote spans regions the
+    /// spec parser normalized away (e.g., IETF RFC page breaks) — see
+    /// "Disjoint coverage ranges" below.
+    pub origin: SourceRanges,
     pub level: AnnotationLevel,    // AUTO, MAY, SHOULD, MUST
 
     /// Coverage map: impl annotation "cite-xxxx" ID → list of byte ranges
@@ -368,26 +384,26 @@ pub struct RequirementAnnotation {
     /// An impl annotation may appear in multiple requirement annotations'
     /// coverage maps (many-to-many relationship).
     ///
-    /// The value is a Vec because a single quote match can span multiple
-    /// disjoint byte ranges in the original spec file — see "Disjoint
-    /// coverage ranges" below.
+    /// The value is a Vec for the same reason `origin.ranges` is — a
+    /// single quote match can span multiple disjoint byte ranges.
     pub coverage: BTreeMap<String, Vec<ByteRange>>,
 }
 ```
 
+One logical authoring site produces exactly one `RequirementAnnotation`, regardless of how many disjoint byte ranges the quote matched. The `req-` ID hash includes the full sorted range list so that fragments of the same logical requirement collapse into a single entry.
+
 ### Impl annotation
 
-A developer-authored annotation in source code. **No `section` field** — inferrable from `target_ranges` byte range containment. **No `quote` field** — the matched spec text is recoverable from `sources[target_source].contents[target_ranges[i].start..target_ranges[i].end]`. **`comment` is kept** — it's a separate field (exception reasons, todo reasons), emitted in v1 JSON and displayed by the frontend.
+A developer-authored annotation in source code. **No `section` field** — inferrable from `target.ranges` byte range containment. **No `quote` field** — the matched spec text is recoverable from `sources[target.src].contents[target.ranges[i].start..target.ranges[i].end]`. **`comment` is kept** — it's a separate field (exception reasons, todo reasons), emitted in v1 JSON and displayed by the frontend.
 
 ```rust
 pub struct ImplAnnotation {
     pub source: SourceLocation,
-    /// The specification file this annotation targets ("src-xxxx" key).
-    pub target_source: String,
-    /// Matched byte ranges within the target specification file. This is a
-    /// Vec because a single quote match can span multiple disjoint byte
-    /// ranges — see "Disjoint coverage ranges" below.
-    pub target_ranges: Vec<ByteRange>,
+    /// The specification file this annotation targets and the matched
+    /// byte range(s) within it. `target.ranges` may contain multiple
+    /// disjoint ranges when the quote spans regions the spec parser
+    /// normalized away — see "Disjoint coverage ranges" below.
+    pub target: SourceRanges,
     pub anno_type: AnnotationType,     // CITATION, TEST, IMPLICATION, EXCEPTION, TODO
     pub level: AnnotationLevel,
     pub comment: Option<String>,
@@ -397,11 +413,11 @@ pub struct ImplAnnotation {
 }
 ```
 
-An annotation targets exactly one specification file (the annotation format `//= <url>#<section>` references a single spec). The disjoint ranges are non-contiguous byte ranges within that one file (e.g., across IETF RFC page breaks). Separating `target_source` (which file) from `target_ranges` (where in that file) makes this structurally clear.
+An annotation targets exactly one specification file (the annotation format `//= <url>#<section>` references a single spec). The disjoint ranges are non-contiguous byte ranges within that one file (e.g., across IETF RFC page breaks). Nesting `src` and `ranges` inside `target: SourceRanges` keeps the coupling between them structurally explicit — `ranges` are meaningless without the `src` they index into.
 
 ### Disjoint coverage ranges
 
-`ImplAnnotation.target_ranges` and `RequirementAnnotation.coverage` values are arrays, not single ranges. This is because a single quote match can produce multiple disjoint byte ranges in the original specification file.
+`ImplAnnotation.target.ranges`, `RequirementAnnotation.origin.ranges`, and `RequirementAnnotation.coverage` values are all arrays because a single quote match can produce multiple disjoint byte ranges in the original specification file.
 
 **How this happens:** The `View` struct (`text/view.rs`) concatenates non-contiguous spec lines into a single searchable string. IETF RFCs have page breaks (form feeds + headers/footers) that interrupt section text. The IETF parser strips these, but the underlying `Slice` objects still reference the original file offsets. When `Annotation::quote_range()` finds a match in the concatenated view, `View::ranges()` maps it back to the original file coordinates — yielding multiple disjoint `Slice` items if the match spans a page break.
 
@@ -526,7 +542,12 @@ The v1 JSON already uses `annotation.source.to_string_lossy()` to emit relative 
     "https://awslabs.github.io/duvet/v2/annotations.json#requirement": {
       "req-f7a3b2c1e9d04856": {
         "source": { "src": "lnk-d7e8f9a0b1c23456", "line": 10 },
-        "origin": { "src": "src-a3f7b2c1e9d04856", "start": 12340, "end": 12405 },
+        "origin": {
+          "src": "src-a3f7b2c1e9d04856",
+          "ranges": [
+            { "start": 12340, "end": 12405 }
+          ]
+        },
         "level": "MUST",
         "coverage": {
           "cite-c3d4e5f6a7b80912": [
@@ -542,21 +563,25 @@ The v1 JSON already uses `annotation.source.to_string_lossy()` to emit relative 
     "https://awslabs.github.io/duvet/v2/annotations.json#impl": {
       "cite-c3d4e5f6a7b80912": {
         "source": { "src": "lnk-b4c8d3e2f1a05967", "line": 42 },
-        "target_source": "src-a3f7b2c1e9d04856",
-        "target_ranges": [
-          { "start": 12340, "end": 12360 },
-          { "start": 12400, "end": 12405 }
-        ],
+        "target": {
+          "src": "src-a3f7b2c1e9d04856",
+          "ranges": [
+            { "start": 12340, "end": 12360 },
+            { "start": 12400, "end": 12405 }
+          ]
+        },
         "type": "CITATION",
         "level": "AUTO",
         "comment": "Implemented in handle_request()"
       },
       "cite-d4e5f6a7b8091234": {
         "source": { "src": "lnk-c5d9e4f3a2b16a78", "line": 15 },
-        "target_source": "src-a3f7b2c1e9d04856",
-        "target_ranges": [
-          { "start": 12350, "end": 12405 }
-        ],
+        "target": {
+          "src": "src-a3f7b2c1e9d04856",
+          "ranges": [
+            { "start": 12350, "end": 12405 }
+          ]
+        },
         "type": "TEST",
         "level": "AUTO"
       }
@@ -571,11 +596,13 @@ The v1 JSON already uses `annotation.source.to_string_lossy()` to emit relative 
 {
   "cite-e5f6a7b8c9d01234": {
     "source": { "src": "lnk-b4c8d3e2f1a05967", "line": 87 },
-    "target_source": "src-a3f7b2c1e9d04856",
-    "target_ranges": [
-      { "start": 1000, "end": 1020 },
-      { "start": 1100, "end": 1118 }
-    ],
+    "target": {
+      "src": "src-a3f7b2c1e9d04856",
+      "ranges": [
+        { "start": 1000, "end": 1020 },
+        { "start": 1100, "end": 1118 }
+      ]
+    },
     "type": "CITATION",
     "level": "AUTO"
   }
@@ -588,7 +615,7 @@ The quote `"A server MUST accept both BREW and POST"` matched across a page brea
 
 #### Building the v2 report from `ReportResult`
 
-The conversion from `ReportResult` to the new `ReportV2` requires correlating annotations with their matched references to populate `target_ranges` and `coverage`. The current `from_report_result()` iterates annotations and targets separately; the new version must cross-reference them. The conversion proceeds in four steps:
+The conversion from `ReportResult` to the new `ReportV2` requires correlating annotations with their matched references to populate `target.ranges` and `coverage`. The current `from_report_result()` iterates annotations and targets separately; the new version must cross-reference them. The conversion proceeds in four steps:
 
 **Step 1: Build entity ID infrastructure.**
 
@@ -596,32 +623,33 @@ The conversion from `ReportResult` to the new `ReportV2` requires correlating an
 - Compute inline source IDs by reading spec file contents from `TargetReport.specification`. The backing `SourceFile` is accessible from any section's line `Slice`: `section.full_title.file()` returns the `SourceFile`, which derefs to `&str` for the full contents. Hash the contents to produce `src-` prefixed IDs.
 - Compute linked source IDs from annotation source paths + repository IDs. `annotation.source.to_string_lossy()` gives the relative file path (see "Source path handling" below). Hash `file_name \0 repository_id` (or `file_name \0 ""` when no repository) to produce `lnk-` prefixed IDs.
 
-**Step 2: Build impl annotations with `target_ranges`.**
+**Step 2: Build impl annotations with `target.ranges`.**
 
 - Iterate all `TargetReport.references` across all targets.
-- Group non-SPEC references by annotation stable ID.
-- For each group, collect `(Reference.start(), Reference.end())` byte ranges. These become `ImplAnnotation.target_ranges`.
+- Group non-SPEC references by `cite-` ID.
+- For each group, collect `(Reference.start(), Reference.end())` byte ranges into `ImplAnnotation.target.ranges`. Sort and dedup.
 - A single annotation may produce multiple `Reference`s (from `View::ranges()` when a quote spans a page break), each contributing a separate `ByteRange` to the array.
 
 **Step 3: Build requirement annotations with `coverage`.**
 
-- For each SPEC annotation's references, determine its byte range in the spec (from `Reference.start()` / `Reference.end()`).
-- For each non-SPEC reference that overlaps this byte range, compute the **intersection** (clamped ranges) of the reference's byte range with the requirement's origin range. Specifically, for each `ByteRange { start, end }` from the impl annotation's target_ranges, clamp to `max(start, req.origin.start)..min(end, req.origin.end)`. Discard ranges where the clamped start ≥ clamped end (no overlap). Record:
-  - The impl annotation's `cite-` ID as the coverage map key
-  - The clamped byte range(s) as the coverage map value
-- This matches the existing `StatusMap::populate()` semantics, which uses `coverage.range(r.start()..r.end())` to iterate only the offsets *within* the SPEC reference's byte range. The new logic preserves `(start, end)` ranges attributed to specific impl annotations instead of just counting offsets.
-- Note: in the example JSON, all impl target_ranges happen to fall entirely within the requirement's source range, so clamping is a no-op there. But in general, an impl annotation's quote can span multiple requirements, and each requirement's coverage map should only contain the portion relevant to that requirement.
+Two-pass, per target:
+
+1. **Group SPEC references by authoring site.** Key: `(origin src-, source lnk-, anno_line)`. Collect each reference's `(start, end)` into the group's range list. This guarantees that one logical authoring site (one TOML `[[spec]]` or one inline `//= type=spec` comment) produces exactly one `RequirementAnnotation` even when its quote matched N disjoint byte ranges.
+2. **Emit one `RequirementAnnotation` per group.** Sort and dedup the group's ranges. Compute `req_id(origin_id, &ranges, source_id, anno_line)`. Populate `origin: SourceRanges { src: origin_id, ranges }`.
+3. **Build `coverage` by iterating each origin range.** For every non-SPEC reference on the target, clamp `(ref.start, ref.end)` to each `(origin_range.start, origin_range.end)` and insert a `ByteRange` under that reference's `cite-` ID if the clamp is non-empty. A single impl reference can contribute under multiple origin ranges of the same requirement; dedup each coverage list after population.
+
+This matches the existing `StatusMap::populate()` semantics, which uses `coverage.range(r.start()..r.end())` to iterate only the offsets *within* the SPEC reference's byte range. The new logic preserves `(start, end)` ranges attributed to specific impl annotations instead of just counting offsets, and it no longer fragments one logical requirement into N entries.
 
 **Step 4: Build specification and section annotations.**
 
-- Specification annotation: `source` = `SourceRef { source: src_id, start: 0, end: file_length }`. File length from `source_file.len()`. Title from `Specification.title`, format from `Specification.format`.
-- Section annotation: `source` = `SourceRef { source: src_id, start: full_title.range().start, end: last_line_end }`. Compute `last_line_end` as the maximum `line.range().end` across all `Line::Str` lines in the section. `short_name` from `Section.id`, `long_name` from `Section.title`.
+- Specification annotation: `source` = `SourceRef { src: src_id, start: 0, end: file_length }`. File length from `source_file.len()`. Title from `Specification.title`, format from `Specification.format`.
+- Section annotation: `source` = `SourceRef { src: src_id, start: full_title.range().start, end: last_line_end }`. Compute `last_line_end` as the maximum `line.range().end` across all `Line::Str` lines in the section. `short_name` from `Section.id`, `long_name` from `Section.title`.
 
 Changes to `json_v2.rs`:
 
 1. Add `InlineSource`, `LinkedSource`, `SourcesV2` (JSON keys `#inline`/`#linked`), `Repository`, `repositories` map to `ReportV2`
 2. Add `AnnotationsV2` with `specification`, `section`, `requirement`, `impl` maps (JSON keys are schema URLs, map keys are `spc-`/`req-`/`cite-` prefixed IDs)
-3. Add `SourceRef`, `SourceLocation`, `SpecificationAnnotation`, `SectionAnnotation`, `RequirementAnnotation`, `ImplAnnotation`, `ByteRange` structs (no `id` field — ID is the map key)
+3. Add `SourceRef`, `SourceRanges`, `SourceLocation`, `SpecificationAnnotation`, `SectionAnnotation`, `RequirementAnnotation`, `ImplAnnotation`, `ByteRange` structs (no `id` field — ID is the map key). `SourceRef` is used where the referenced region is always contiguous (specification and section annotations); `SourceRanges` is used where it may be disjoint (requirement origin, impl target).
 4. Remove `SpecificationV2`, `SectionV2`, `LineV2`, `LineSegmentV2`, `AnnotationV2`, `CoverageStatus` structs
 5. Remove `specifications` and `coverage` fields from `ReportV2`
 6. Rename `issue_link` → `issue_links: Vec<String>`, remove `blob_link` from `ReportV2`. For initial single-package report generation, `issue_links` is populated by wrapping the single `ReportResult.issue_link` value in a one-element `Vec` (or empty `Vec` if `None`). During merge (Phase 3), `issue_links` from all input reports are concatenated and deduplicated.
@@ -679,7 +707,7 @@ When two input reports contain the same entity ID, the merge must decide whether
 | `spc-` specification | `title` or `format` mismatch | Error (spec version drift between packages) |
 | `spc-` section | `short_name` or `long_name` mismatch | Error (spec version drift between packages) |
 | `req-` requirement | `level` mismatch; `coverage` differs | Error on `level` mismatch. Union `coverage` maps (additive — this is the core merge operation). |
-| `cite-` | Core fields or metadata differ | Error if `anno_type`, `level`, `target_ranges`, or `target_source` differ (indicates scanning inconsistency — same source file produced different results). Warn if only `comment`, `feature`, `tracking_issue`, or `tags` differ (metadata drift); take the value from the first input report. |
+| `cite-` | Core fields or metadata differ | Error if `anno_type`, `level`, or `target` differ (indicates scanning inconsistency — same source file produced different results). Warn if only `comment`, `feature`, `tracking_issue`, or `tags` differ (metadata drift); take the value from the first input report. |
 
 **Why `cite-` conflicts indicate bugs:** A `cite-` ID collision means the same source file, same line, same target spec was scanned by two packages and produced different core results. This should not happen in normal operation. The most likely cause is different duvet versions or different spec file versions across packages.
 
@@ -945,8 +973,8 @@ If packages reference different spec versions, need strategy. Simplest: require 
           "description": "Authoring site: where this requirement was declared (TOML file or inline //= type=spec comment)"
         },
         "origin": {
-          "$ref": "#/$defs/SourceRef",
-          "description": "Spec byte range this requirement represents"
+          "$ref": "#/$defs/SourceRanges",
+          "description": "Spec byte range(s) this requirement represents. May contain multiple disjoint ranges when the matched quote spans regions the spec parser normalized away (e.g., IETF RFC page breaks)."
         },
         "level": {
           "type": "string",
@@ -964,21 +992,16 @@ If packages reference different spec versions, need strategy. Simplest: require 
     },
     "ImplAnnotation": {
       "type": "object",
-      "description": "A developer-authored annotation in source code (citation, test, etc.). Keyed by 'cite-' prefixed ID. Section is inferrable from target_ranges byte range containment within section annotations.",
-      "required": ["source", "target_source", "target_ranges", "type"],
+      "description": "A developer-authored annotation in source code (citation, test, etc.). Keyed by 'cite-' prefixed ID. Section is inferrable from target.ranges byte range containment within section annotations.",
+      "required": ["source", "target", "type"],
       "properties": {
         "source": {
           "$ref": "#/$defs/SourceLocation",
           "description": "Location in the source code file (references a linked source)"
         },
-        "target_source": {
-          "type": "string",
-          "description": "'src-' prefixed key into the sources map (inline type). The specification file this annotation targets."
-        },
-        "target_ranges": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/ByteRange" },
-          "description": "Matched byte ranges within the target specification file. Array because a single quote match can span disjoint byte ranges (e.g., across IETF RFC page breaks)."
+        "target": {
+          "$ref": "#/$defs/SourceRanges",
+          "description": "The specification file this annotation targets and the matched byte range(s) within it. May contain multiple disjoint ranges when the quote spans regions the spec parser normalized away (e.g., IETF RFC page breaks)."
         },
         "type": {
           "type": "string",
@@ -1000,7 +1023,7 @@ If packages reference different spec versions, need strategy. Simplest: require 
     },
     "SourceRef": {
       "type": "object",
-      "description": "A reference to a byte range within an inline source file",
+      "description": "A reference to a single contiguous byte range within an inline source file",
       "required": ["src", "start", "end"],
       "properties": {
         "src": {
@@ -1014,6 +1037,21 @@ If packages reference different spec versions, need strategy. Simplest: require 
         "end": {
           "type": "integer",
           "description": "End byte offset (exclusive, absolute in the source file)"
+        }
+      }
+    },
+    "SourceRanges": {
+      "type": "object",
+      "description": "A reference to one or more (possibly disjoint) byte ranges within an inline source file. Ranges are canonically sorted ascending.",
+      "required": ["src", "ranges"],
+      "properties": {
+        "src": {
+          "type": "string",
+          "description": "'src-' prefixed key into the sources map (inline type)"
+        },
+        "ranges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ByteRange" }
         }
       }
     },
