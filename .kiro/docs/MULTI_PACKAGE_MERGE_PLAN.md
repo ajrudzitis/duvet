@@ -258,7 +258,7 @@ pub struct Repository {
 }
 
 pub struct InlineSource {
-    pub file_name: String,      // e.g., "rfc9000.txt"
+    pub file_name: String,      // e.g., "specs/rfc9000.txt"
     pub contents: String,       // full file text
 }
 
@@ -505,7 +505,7 @@ The v1 JSON already uses `annotation.source.to_string_lossy()` to emit relative 
   "sources": {
     "https://awslabs.github.io/duvet/v2/sources.json#inline": {
       "src-a3f7b2c1e9d04856": {
-        "file_name": "rfc9000.txt",
+        "file_name": "specs/rfc9000.txt",
         "contents": "... full RFC text ..."
       }
     },
@@ -901,7 +901,7 @@ If packages reference different spec versions, need strategy. Simplest: require 
       "properties": {
         "file_name": {
           "type": "string",
-          "description": "Original file name (e.g., 'rfc9000.txt', 'spec.md')"
+          "description": "Full path as duvet saw it (e.g., 'specs/rfc9000.txt', 'my-spec.md')"
         },
         "contents": {
           "type": "string",
