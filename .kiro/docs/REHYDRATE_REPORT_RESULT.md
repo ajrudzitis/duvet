@@ -49,7 +49,7 @@ ReportV2
   │    └─ linked: Map<"lnk-xxx", { file_name, repository? }>  ← source code metadata
   ├─ annotations
   │    ├─ specification: Map<"spc-xxx", { source: SourceRef, title?, format }>
-  │    ├─ section: Map<"spc-xxx", { source: SourceRef, short_name, long_name? }>
+  │    ├─ section: Map<"sec-xxx", { source: SourceRef, short_name, long_name? }>
   │    ├─ requirement: Map<"req-xxx", { source: SourceLocation, origin: SourceRef, level, coverage: Map<cite-ID, [ByteRange]> }>
   │    └─ impl: Map<"cite-xxx", { source: SourceLocation, target_source, target_ranges: [ByteRange], type, ... }>
   └─ issue_links: [String]
